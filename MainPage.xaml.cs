@@ -20,7 +20,15 @@ namespace JHLabel
         {
             InitializeComponent();
             // SQLite 데이터베이스 초기화 (AppDataDirectory에 labels.db3 생성)
-            string dbPath = System.IO.Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
+            
+            string dbPath;
+            #if DEBUG
+                // 개발용: 현재 작업 디렉토리(예: bin/Debug/net10.0-windows...)에 저장
+                dbPath = Path.Combine(Directory.GetCurrentDirectory(), "labels.db3");
+            #else
+                // 릴리즈 시에는 앱 전용 저장소 사용
+                dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
+            #endif
             _dbService = new DatabaseService(dbPath);
             LoadLabels();
         }
