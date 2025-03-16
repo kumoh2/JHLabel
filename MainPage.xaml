@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="JHLabel.MainPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:views="clr-namespace:JHLabel.Views"
+    Title="JHLabel">
+  <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,2*">
+    <!-- 좌측: 저장된 라벨 목록 -->
+    <CollectionView x:Name="LabelListView" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
+                    SelectionMode="Single"
+                    SelectionChanged="LabelListView_SelectionChanged">
+      <CollectionView.ItemTemplate>
+        <DataTemplate>
+            <Border Padding="10" Margin="5">
+                <Label Text="{Binding LabelName}" />
+            </Border>
+        </DataTemplate>
+      </CollectionView.ItemTemplate>
+    </CollectionView>
+
+    <!-- 우측: 라벨 편집 영역 (AbsoluteLayout) -->
+    <AbsoluteLayout x:Name="EditorArea" Grid.Row="0" Grid.Column="1" BackgroundColor="LightGray" />
+
+    <!-- 하단 우측: 버튼 영역 (스크롤뷰로 여러 버튼 지원) -->
+    <ScrollView Grid.Row="1" Grid.Column="1">
+      <StackLayout Orientation="Horizontal" HorizontalOptions="Center" Spacing="10" Padding="10">
+        <Button Text="Add Text" Clicked="OnAddTextClicked" />
+        <Button Text="Add 1D Barcode" Clicked="OnAddBarcode1DClicked" />
+        <Button Text="Add 2D Barcode" Clicked="OnAddBarcode2DClicked" />
+        <Button Text="Add Table" Clicked="OnAddTableClicked" />
+        <Button Text="Save Label" Clicked="OnSaveLabelClicked" />
+      </StackLayout>
+    </ScrollView>
+  </Grid>
+</ContentPage>
