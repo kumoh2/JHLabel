@@ -12,25 +12,23 @@
                     SelectionChanged="LabelListView_SelectionChanged">
       <CollectionView.ItemTemplate>
         <DataTemplate>
-            <Border Padding="10" Margin="5">
-                <Label Text="{Binding LabelName}" />
-            </Border>
+          <Border Padding="10" Margin="5">
+            <Label Text="{Binding LabelName}" />
+          </Border>
         </DataTemplate>
       </CollectionView.ItemTemplate>
     </CollectionView>
 
     <!-- 우측: 라벨 편집 영역 (AbsoluteLayout) -->
-    <AbsoluteLayout x:Name="EditorArea" Grid.Row="0" Grid.Column="1" BackgroundColor="LightGray" />
+    <AbsoluteLayout x:Name="EditorArea" Grid.Row="0" Grid.Column="1" BackgroundColor="LightGray"/>
 
-    <!-- 하단 우측: 버튼 영역 (스크롤뷰로 여러 버튼 지원) -->
-    <ScrollView Grid.Row="1" Grid.Column="1">
-      <StackLayout Orientation="Horizontal" HorizontalOptions="Center" Spacing="10" Padding="10">
-        <Button Text="Add Text" Clicked="OnAddTextClicked" />
-        <Button Text="Add 1D Barcode" Clicked="OnAddBarcode1DClicked" />
-        <Button Text="Add 2D Barcode" Clicked="OnAddBarcode2DClicked" />
-        <Button Text="Add Table" Clicked="OnAddTableClicked" />
-        <Button Text="Save Label" Clicked="OnSaveLabelClicked" />
-      </StackLayout>
-    </ScrollView>
+    <!-- 하단 우측: 버튼 영역 -->
+    <StackLayout Orientation="Horizontal" Grid.Row="1" Grid.Column="1" HorizontalOptions="Center" Spacing="10" Padding="10">
+      <Button Text="Add Text" Clicked="OnAddTextClicked"/>
+      <Button Text="Add 1D Barcode" Clicked="OnAddBarcode1DClicked"/>
+      <Button Text="Add 2D Barcode" Clicked="OnAddBarcode2DClicked"/>
+      <Button Text="Add Table" Clicked="OnAddTableClicked"/>
+      <Button Text="Save Label" Clicked="OnSaveLabelClicked"/>
+    </StackLayout>
   </Grid>
 </ContentPage>

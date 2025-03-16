@@ -5,7 +5,6 @@ namespace JHLabel.Views
 {
     public partial class TableDrawableView : ContentView
     {
-        // 표의 행, 열, 셀 크기, 선 두께 등 프로퍼티
         public int Rows { get; set; } = 2;
         public int Columns { get; set; } = 2;
         public float CellWidth { get; set; } = 150;
@@ -15,11 +14,11 @@ namespace JHLabel.Views
         public TableDrawableView()
         {
             InitializeComponent();
+            // Drawable 속성에 그리기 로직(IDrawable 구현체)을 할당합니다.
             graphicsView.Drawable = new TableDrawable(this);
         }
     }
 
-    // 실제 그리기 로직: 외곽 사각형과 내부 수직/수평선을 그립니다.
     public class TableDrawable : IDrawable
     {
         private readonly TableDrawableView _view;
@@ -35,7 +34,7 @@ namespace JHLabel.Views
 
             float totalWidth = _view.Columns * _view.CellWidth;
             float totalHeight = _view.Rows * _view.CellHeight;
-            // 외곽 사각형
+            // 외곽 사각형 그리기
             canvas.DrawRectangle(0, 0, totalWidth, totalHeight);
 
             // 수직선 그리기
