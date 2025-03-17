@@ -3,6 +3,7 @@ using Microsoft.Maui.Layouts;
 using Microsoft.Maui.Graphics;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.RegularExpressions;
 using JHLabel.Models;
 using JHLabel.Services;
@@ -100,6 +101,7 @@ namespace JHLabel
             AbsoluteLayout.SetLayoutBounds(lbl, new Rect(100, 100, 100, 30));
             AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
             AddDragAndGesture(lbl);
+            // 초기에 pgl 값은 저장 시 업데이트되도록 ClassId에 pgl 정보는 미포함
             lbl.ClassId = "Text:" + text;
             EditorArea.Children.Add(lbl);
         }
@@ -162,14 +164,65 @@ namespace JHLabel
             }
         }
 
+        // 자동으로 pgl 값을 생성하는 헬퍼 메서드
+        private string GeneratePGL()
+        {
+            // 예시로 Guid를 사용해 8자리 문자열 생성 (필요에 따라 변경 가능)
+            return "PGL_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        }
+
+        // pgl 자동 생성 후, 저장 시 모든 객체의 ClassId에 pgl 값을 추가
         private async void OnSaveLabelClicked(object sender, EventArgs e)
         {
-            // Save 로직 구현
             string name = await DisplayPromptAsync("Save Label", "Enter label name:");
             if (string.IsNullOrEmpty(name))
                 return;
+
+            // 자동으로 pgl 생성 (모든 요소에 동일한 pgl 값 사용)
+            string pgl = GeneratePGL();
+
+            // 편집 영역에 있는 각 객체의 ClassId를 업데이트 (선택 표시 및 리사이즈 핸들은 제외)
+            foreach (var view in EditorArea.Children)
+            {
+                if (view == _selectionIndicator || view == _resizeHandle)
+                    continue;
+
+                if (view is Label lbl)
+                {
+                    lbl.ClassId = $"Text:{lbl.Text}:{pgl}";
+                }
+                else if (view is Image img)
+                {
+                    if (!string.IsNullOrEmpty(img.ClassId))
+                    {
+                        if (img.ClassId.StartsWith("Barcode1D:"))
+                        {
+                            // 기존 데이터 추출 후 pgl 추가
+                            string data = img.ClassId.Split(':')[1];
+                            img.ClassId = $"Barcode1D:{data}:{pgl}";
+                        }
+                        else if (img.ClassId.StartsWith("Barcode2D:"))
+                        {
+                            string data = img.ClassId.Split(':')[1];
+                            img.ClassId = $"Barcode2D:{data}:{pgl}";
+                        }
+                    }
+                }
+                else if (view is Views.TableDrawableView tableView)
+                {
+                    if (!string.IsNullOrEmpty(tableView.ClassId))
+                    {
+                        var parts = tableView.ClassId.Split(':');
+                        if (parts.Length >= 5)
+                        {
+                            tableView.ClassId = $"Table:{parts[1]}:{parts[2]}:{parts[3]}:{parts[4]}:{pgl}";
+                        }
+                    }
+                }
+            }
+
             string zpl = GenerateZPLFromEditor();
-            var model = new LabelModel { LabelName = name, ZPL = zpl };
+            var model = new LabelModel { LabelName = name, ZPL = zpl, PGL = pgl };
 
             int result = await _dbService.SaveLabelAsync(model);
 
@@ -182,104 +235,6 @@ namespace JHLabel
             {
                 await DisplayAlert("Not Saved", "Label not saved", "OK");
             }
-        }
-
-        // 레이어 순서 조정: Bring to Front
-        private void OnBringToFrontClicked(object sender, EventArgs e)
-        {
-            if (_selectedView == null)
-            {
-                DisplayAlert("Info", "No object selected.", "OK");
-                return;
-            }
-            EditorArea.Children.Remove(_selectedView);
-            EditorArea.Children.Add(_selectedView);
-            // 선택 표시와 리사이즈 핸들도 최상단에 배치
-            EditorArea.Children.Remove(_selectionIndicator);
-            EditorArea.Children.Add(_selectionIndicator);
-            EditorArea.Children.Remove(_resizeHandle);
-            EditorArea.Children.Add(_resizeHandle);
-        }
-
-        // 레이어 순서 조정: Send to Back
-        private void OnSendToBackClicked(object sender, EventArgs e)
-        {
-            if (_selectedView == null)
-            {
-                DisplayAlert("Info", "No object selected.", "OK");
-                return;
-            }
-            EditorArea.Children.Remove(_selectedView);
-            EditorArea.Children.Insert(0, _selectedView);
-            // 선택 표시와 리사이즈 핸들은 최상단에 유지
-            EditorArea.Children.Remove(_selectionIndicator);
-            EditorArea.Children.Add(_selectionIndicator);
-            EditorArea.Children.Remove(_resizeHandle);
-            EditorArea.Children.Add(_resizeHandle);
-        }
-
-        // 현재 편집된 내용을 ZPL 문자열로 변환 (선택 표시 및 리사이즈 핸들은 제외)
-        private string GenerateZPLFromEditor()
-        {
-            string zpl = "^XA";
-            foreach (var view in EditorArea.Children)
-            {
-                if (view == _selectionIndicator || view == _resizeHandle)
-                    continue;
-
-                var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                int x = (int)bounds.X;
-                int y = (int)bounds.Y;
-                if (view is Label lbl)
-                {
-                    zpl += $"^FO{x},{y}^A0N,30,30^FD{lbl.Text}^FS";
-                }
-                else if (view is Image img)
-                {
-                    if (!string.IsNullOrEmpty(img.ClassId))
-                    {
-                        if (img.ClassId.StartsWith("Barcode1D:"))
-                        {
-                            string data = img.ClassId.Substring("Barcode1D:".Length);
-                            zpl += $"^FO{x},{y}^BCN,80,Y,N,N^FD{data}^FS";
-                        }
-                        else if (img.ClassId.StartsWith("Barcode2D:"))
-                        {
-                            string data = img.ClassId.Substring("Barcode2D:".Length);
-                            zpl += $"^FO{x},{y}^BQN,2,5^FDMM,A{data}^FS";
-                        }
-                    }
-                }
-                else if (view is Views.TableDrawableView tableView)
-                {
-                    if (!string.IsNullOrEmpty(tableView.ClassId))
-                    {
-                        var parts = tableView.ClassId.Split(':');
-                        if (parts.Length == 5)
-                        {
-                            int rows = int.Parse(parts[1]);
-                            int cols = int.Parse(parts[2]);
-                            int cellWidth = int.Parse(parts[3]);
-                            int cellHeight = int.Parse(parts[4]);
-                            int tableWidth = cols * cellWidth;
-                            int tableHeight = rows * cellHeight;
-                            zpl += $"^FO{x},{y}^GB{tableWidth},{tableHeight},3^FS";
-                            for (int i = 1; i < cols; i++)
-                            {
-                                int lineX = x + i * cellWidth;
-                                zpl += $"^FO{lineX},{y}^GB3,{tableHeight},3^FS";
-                            }
-                            for (int j = 1; j < rows; j++)
-                            {
-                                int lineY = y + j * cellHeight;
-                                zpl += $"^FO{x},{lineY}^GB{tableWidth},3,3^FS";
-                            }
-                        }
-                    }
-                }
-            }
-            zpl += "^XZ";
-            return zpl;
         }
 
         // 모든 추가된 뷰에 대해 드래그 및 선택 제스처 부여 (핀치 제스처 제거)
@@ -364,64 +319,140 @@ namespace JHLabel
             }
         }
 
+        // 현재 편집된 내용을 ZPL 문자열로 변환 (선택 표시 및 리사이즈 핸들은 제외)
+        private string GenerateZPLFromEditor()
+        {
+            string zpl = "^XA";
+            foreach (var view in EditorArea.Children)
+            {
+                if (view == _selectionIndicator || view == _resizeHandle)
+                    continue;
+
+                var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
+                int x = (int)bounds.X;
+                int y = (int)bounds.Y;
+
+                if (view is Label lbl)
+                {
+                    // ClassId 형식: Text:<text>:<pgl>
+                    string[] parts = lbl.ClassId.Split(':');
+                    string pgl = parts.Length >= 3 ? parts[2] : "DEFAULT_PGL";
+                    zpl += $"^FO{x},{y}^A0N,30,30^FD{lbl.Text}^FS^PGL{pgl}";
+                }
+                else if (view is Image img)
+                {
+                    if (!string.IsNullOrEmpty(img.ClassId))
+                    {
+                        string[] parts = img.ClassId.Split(':');
+                        string pgl = parts.Length >= 3 ? parts[2] : "DEFAULT_PGL";
+
+                        if (img.ClassId.StartsWith("Barcode1D:"))
+                        {
+                            string data = parts[1];
+                            zpl += $"^FO{x},{y}^BCN,80,Y,N,N^FD{data}^FS^PGL{pgl}";
+                        }
+                        else if (img.ClassId.StartsWith("Barcode2D:"))
+                        {
+                            string data = parts[1];
+                            zpl += $"^FO{x},{y}^BQN,2,5^FDMM,A{data}^FS^PGL{pgl}";
+                        }
+                    }
+                }
+                else if (view is Views.TableDrawableView tableView)
+                {
+                    if (!string.IsNullOrEmpty(tableView.ClassId))
+                    {
+                        var parts = tableView.ClassId.Split(':');
+                        if (parts.Length == 6)
+                        {
+                            string pgl = parts[5];
+                            int rows = int.Parse(parts[1]);
+                            int cols = int.Parse(parts[2]);
+                            int cellWidth = int.Parse(parts[3]);
+                            int cellHeight = int.Parse(parts[4]);
+                            int tableWidth = cols * cellWidth;
+                            int tableHeight = rows * cellHeight;
+                            zpl += $"^FO{x},{y}^GB{tableWidth},{tableHeight},3^FS^PGL{pgl}";
+                            for (int i = 1; i < cols; i++)
+                            {
+                                int lineX = x + i * cellWidth;
+                                zpl += $"^FO{lineX},{y}^GB3,{tableHeight},3^FS";
+                            }
+                            for (int j = 1; j < rows; j++)
+                            {
+                                int lineY = y + j * cellHeight;
+                                zpl += $"^FO{x},{lineY}^GB{tableWidth},3,3^FS";
+                            }
+                        }
+                    }
+                }
+            }
+            zpl += "^XZ";
+            return zpl;
+        }
+
+        // ZPL 문자열에서 pgl 값을 포함하여 객체를 재구성
         private void ParseZPLToEditor(string zpl)
         {
-            // 텍스트 파싱
-            var regexText = new Regex(@"\^FO(\d+),(\d+)\^A0N,30,30\^FD([^\\^]+)\^FS");
+            // 텍스트 파싱 (pgl 값 포함)
+            var regexText = new Regex(@"\^FO(\d+),(\d+)\^A0N,30,30\^FD([^\\^]+)\^FS\^PGL(\w+)");
             foreach (Match match in regexText.Matches(zpl))
             {
-                if (match.Groups.Count == 4)
+                if (match.Groups.Count == 5)
                 {
                     int x = int.Parse(match.Groups[1].Value);
                     int y = int.Parse(match.Groups[2].Value);
                     string content = match.Groups[3].Value;
+                    string pgl = match.Groups[4].Value;
                     var lbl = new Label { Text = content, BackgroundColor = Colors.White, TextColor = Colors.Black };
                     AbsoluteLayout.SetLayoutBounds(lbl, new Rect(x, y, 100, 30));
                     AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
                     AddDragAndGesture(lbl);
-                    lbl.ClassId = "Text:" + content;
+                    lbl.ClassId = $"Text:{content}:{pgl}";
                     EditorArea.Children.Add(lbl);
                 }
             }
 
-            // 1D 바코드 파싱
-            var regexBarcode1D = new Regex(@"\^FO(\d+),(\d+)\^BCN,80,Y,N,N\^FD([^\\^]+)\^FS");
+            // 1D 바코드 파싱 (pgl 값 포함)
+            var regexBarcode1D = new Regex(@"\^FO(\d+),(\d+)\^BCN,80,Y,N,N\^FD([^\\^]+)\^FS\^PGL(\w+)");
             foreach (Match match in regexBarcode1D.Matches(zpl))
             {
-                if (match.Groups.Count == 4)
+                if (match.Groups.Count == 5)
                 {
                     int x = int.Parse(match.Groups[1].Value);
                     int y = int.Parse(match.Groups[2].Value);
                     string data = match.Groups[3].Value;
+                    string pgl = match.Groups[4].Value;
                     var img = new Image { Source = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.CODE_128, 200, 80), WidthRequest = 200, HeightRequest = 80 };
                     AbsoluteLayout.SetLayoutBounds(img, new Rect(x, y, 200, 80));
                     AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
                     AddDragAndGesture(img);
-                    img.ClassId = "Barcode1D:" + data;
+                    img.ClassId = $"Barcode1D:{data}:{pgl}";
                     EditorArea.Children.Add(img);
                 }
             }
 
-            // 2D 바코드 파싱
-            var regexBarcode2D = new Regex(@"\^FO(\d+),(\d+)\^BQN,2,5\^FDMM,A([^\\^]+)\^FS");
+            // 2D 바코드 파싱 (pgl 값 포함)
+            var regexBarcode2D = new Regex(@"\^FO(\d+),(\d+)\^BQN,2,5\^FDMM,A([^\\^]+)\^FS\^PGL(\w+)");
             foreach (Match match in regexBarcode2D.Matches(zpl))
             {
-                if (match.Groups.Count == 4)
+                if (match.Groups.Count == 5)
                 {
                     int x = int.Parse(match.Groups[1].Value);
                     int y = int.Parse(match.Groups[2].Value);
                     string data = match.Groups[3].Value;
+                    string pgl = match.Groups[4].Value;
                     var img = new Image { Source = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.QR_CODE, 150, 150), WidthRequest = 150, HeightRequest = 150 };
                     AbsoluteLayout.SetLayoutBounds(img, new Rect(x, y, 150, 150));
                     AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
                     AddDragAndGesture(img);
-                    img.ClassId = "Barcode2D:" + data;
+                    img.ClassId = $"Barcode2D:{data}:{pgl}";
                     EditorArea.Children.Add(img);
                 }
             }
 
-            // 표(Table) 파싱
-            var regexTable = new Regex(@"\^FO(\d+),(\d+)\^GB(\d+),(\d+),3\^FS");
+            // 표(Table) 파싱 (pgl 값 포함)
+            var regexTable = new Regex(@"\^FO(\d+),(\d+)\^GB(\d+),(\d+),3\^FS\^PGL(\w+)");
             foreach (Match match in regexTable.Matches(zpl))
             {
                 if (match.Groups.Count == 5)
@@ -430,6 +461,7 @@ namespace JHLabel
                     int y = int.Parse(match.Groups[2].Value);
                     int width = int.Parse(match.Groups[3].Value);
                     int height = int.Parse(match.Groups[4].Value);
+                    string pgl = match.Groups[5].Value;
                     int cols = width / 150;
                     int rows = height / 100;
                     var tableView = new Views.TableDrawableView
@@ -448,7 +480,7 @@ namespace JHLabel
                     AbsoluteLayout.SetLayoutBounds(tableView, new Rect(x, y, width, height));
                     AbsoluteLayout.SetLayoutFlags(tableView, AbsoluteLayoutFlags.None);
                     AddDragAndGesture(tableView);
-                    tableView.ClassId = $"Table:{rows}:{cols}:150:100";
+                    tableView.ClassId = $"Table:{rows}:{cols}:150:100:{pgl}";
                     EditorArea.Children.Add(tableView);
                 }
             }
