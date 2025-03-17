@@ -23,12 +23,24 @@ namespace JHLabel.Services
 
             if (existingLabel != null)
             {
-                // 이미 존재하면 ID와 ZPL 업데이트 후 저장
+                // 🔹 사용자에게 덮어쓸지 물어보기
+                bool overwrite = await App.Current.MainPage.DisplayAlert(
+                    "Duplicate Label",
+                    $"A label named '{label.LabelName}' already exists. Do you want to overwrite it?",
+                    "Yes", "No");
+
+                if (!overwrite)
+                {
+                    // ❌ 사용자가 "No"를 선택하면 아무것도 하지 않음
+                    return 0;
+                }
+
+                // ✅ "Yes" 선택 시 기존 데이터 업데이트
                 existingLabel.ZPL = label.ZPL;
                 return await _connection.UpdateAsync(existingLabel);
             }
 
-            // 없으면 새로 삽입
+            // 🔹 중복되지 않는 경우 새로 삽입
             return await _connection.InsertAsync(label);
         }
     }
