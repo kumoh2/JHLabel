@@ -169,7 +169,8 @@ namespace JHLabel
             if (string.IsNullOrEmpty(name))
                 return;
             string zpl = GenerateZPLFromEditor();
-            var model = new LabelModel { LabelName = name, ZPL = zpl };
+            string pgl = GeneratePGLFromEditor();  // PGL 문자열 생성
+            var model = new LabelModel { LabelName = name, ZPL = zpl, PGL = pgl };
 
             int result = await _dbService.SaveLabelAsync(model);
 
@@ -280,6 +281,78 @@ namespace JHLabel
             }
             zpl += "^XZ";
             return zpl;
+        }
+
+        // PGL 명령어 생성 메서드 추가 (프린트로닉스 PGL 언어 형식 예시)
+        private string GeneratePGLFromEditor()
+        {
+            // 시작 및 종료 명령은 프린트로닉스 PGL 언어 규격에 맞게 변경하세요.
+            string pgl = "<PGL_START>\n";
+            foreach (var view in EditorArea.Children)
+            {
+                if (view == _selectionIndicator || view == _resizeHandle)
+                    continue;
+
+                var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
+                int x = (int)bounds.X;
+                int y = (int)bounds.Y;
+
+                if (view is Label lbl)
+                {
+                    // 텍스트: TEXT x,y,폰트번호,크기,"텍스트"
+                    pgl += $" TEXT {x},{y},0,30,\"{lbl.Text}\";\n";
+                }
+                else if (view is Image img)
+                {
+                    if (!string.IsNullOrEmpty(img.ClassId))
+                    {
+                        if (img.ClassId.StartsWith("Barcode1D:"))
+                        {
+                            string data = img.ClassId.Substring("Barcode1D:".Length);
+                            // 1D 바코드: BARCODE1D x,y, CODE128, 높이,"데이터"
+                            pgl += $" BARCODE1D {x},{y},CODE128,80,\"{data}\";\n";
+                        }
+                        else if (img.ClassId.StartsWith("Barcode2D:"))
+                        {
+                            string data = img.ClassId.Substring("Barcode2D:".Length);
+                            // 2D 바코드 (QR): BARCODE2D x,y,QR,사이즈,"데이터"
+                            pgl += $" BARCODE2D {x},{y},QR,150,\"{data}\";\n";
+                        }
+                    }
+                }
+                else if (view is Views.TableDrawableView tableView)
+                {
+                    if (!string.IsNullOrEmpty(tableView.ClassId))
+                    {
+                        var parts = tableView.ClassId.Split(':');
+                        if (parts.Length == 5)
+                        {
+                            int rows = int.Parse(parts[1]);
+                            int cols = int.Parse(parts[2]);
+                            int cellWidth = int.Parse(parts[3]);
+                            int cellHeight = int.Parse(parts[4]);
+                            int tableWidth = cols * cellWidth;
+                            int tableHeight = rows * cellHeight;
+                            // 표의 외곽선을 그리는 명령어 (예: RECT x,y,width,height,두께)
+                            pgl += $" RECT {x},{y},{tableWidth},{tableHeight},3;\n";
+                            // 열 구분선 (수직선)
+                            for (int i = 1; i < cols; i++)
+                            {
+                                int lineX = x + i * cellWidth;
+                                pgl += $" LINE {lineX},{y} TO {lineX},{y + tableHeight},3;\n";
+                            }
+                            // 행 구분선 (수평선)
+                            for (int j = 1; j < rows; j++)
+                            {
+                                int lineY = y + j * cellHeight;
+                                pgl += $" LINE {x},{lineY} TO {x + tableWidth},{lineY},3;\n";
+                            }
+                        }
+                    }
+                }
+            }
+            pgl += "<PGL_END>";
+            return pgl;
         }
 
         // 모든 추가된 뷰에 대해 드래그 및 선택 제스처 부여 (핀치 제스처 제거)

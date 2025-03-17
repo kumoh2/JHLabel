@@ -9,5 +9,6 @@ namespace JHLabel.Models
         [Unique]
         public string LabelName { get; set; } = string.Empty;  // 기본값 할당
         public string ZPL { get; set; } = string.Empty;        // 기본값 할당
+        public string PGL { get; set; } = string.Empty;        // 기본값 할당
     }
 }
