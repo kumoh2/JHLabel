@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 using JHLabel.Models;
 using JHLabel.Services;
 using JHLabel.Utils;
-using ZXing; // ZXing.Net (무료 라이브러리)
+using ZXing;
 
 namespace JHLabel
 {
@@ -16,21 +16,70 @@ namespace JHLabel
         DatabaseService _dbService;
         public List<LabelModel> Labels { get; set; } = new List<LabelModel>();
 
+        // 선택된 뷰 및 선택 표시용 오버레이(Border)와 리사이즈 핸들(BoxView)
+        private View? _selectedView;
+        private Border _selectionIndicator;
+        private BoxView _resizeHandle;
+
         public MainPage()
         {
             InitializeComponent();
-            // SQLite 데이터베이스 초기화 (AppDataDirectory에 labels.db3 생성)
-            
+            // SQLite 데이터베이스 초기화
             string dbPath;
-            #if DEBUG
-                // 개발용: 현재 작업 디렉토리(예: bin/Debug/net10.0-windows...)에 저장
-                dbPath = Path.Combine(Directory.GetCurrentDirectory(), "labels.db3");
-            #else
-                // 릴리즈 시에는 앱 전용 저장소 사용
-                dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
-            #endif
+#if DEBUG
+            dbPath = Path.Combine(Directory.GetCurrentDirectory(), "labels.db3");
+#else
+            dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
+#endif
             _dbService = new DatabaseService(dbPath);
             LoadLabels();
+
+            // 선택 표시용 Border 초기화 (Frame 대신 사용)
+            _selectionIndicator = new Border
+            {
+                Stroke = Colors.Blue,
+                StrokeThickness = 2,
+                BackgroundColor = Colors.Transparent,
+                InputTransparent = true,
+                IsVisible = false
+            };
+            EditorArea.Children.Add(_selectionIndicator);
+
+            // 리사이즈 핸들 초기화
+            _resizeHandle = new BoxView
+            {
+                Color = Colors.Red,
+                WidthRequest = 20,
+                HeightRequest = 20,
+                IsVisible = false
+            };
+
+            // Pan 제스처를 사용하여 리사이즈 핸들이 드래그되면 선택된 객체의 크기를 조절
+            var panResize = new PanGestureRecognizer();
+            double initialWidth = 0, initialHeight = 0;
+            panResize.PanUpdated += (s, e) =>
+            {
+                if (_selectedView == null)
+                    return;
+                if (e.StatusType == GestureStatus.Started)
+                {
+                    var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
+                    initialWidth = bounds.Width;
+                    initialHeight = bounds.Height;
+                }
+                else if (e.StatusType == GestureStatus.Running)
+                {
+                    var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
+                    double newWidth = initialWidth + e.TotalX;
+                    double newHeight = initialHeight + e.TotalY;
+                    if (newWidth < 20) newWidth = 20;
+                    if (newHeight < 20) newHeight = 20;
+                    AbsoluteLayout.SetLayoutBounds(_selectedView, new Rect(bounds.X, bounds.Y, newWidth, newHeight));
+                    UpdateSelectionIndicator();
+                }
+            };
+            _resizeHandle.GestureRecognizers.Add(panResize);
+            EditorArea.Children.Add(_resizeHandle);
         }
 
         async void LoadLabels()
@@ -39,7 +88,7 @@ namespace JHLabel
             LabelListView.ItemsSource = Labels;
         }
 
-        // 텍스트 추가
+        // 텍스트 추가 (기본 크기를 지정하여 Measure 문제를 회피)
         private async void OnAddTextClicked(object sender, EventArgs e)
         {
             string text = await DisplayPromptAsync("Add Text", "Enter text:");
@@ -47,9 +96,10 @@ namespace JHLabel
                 return;
 
             var lbl = new Label { Text = text, BackgroundColor = Colors.White, TextColor = Colors.Black };
-            AbsoluteLayout.SetLayoutBounds(lbl, new Rect(100, 100, -1, -1));
+            // 기본 크기를 명시적으로 설정
+            AbsoluteLayout.SetLayoutBounds(lbl, new Rect(100, 100, 100, 30));
             AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-            AddDragGesture(lbl);
+            AddDragAndGesture(lbl);
             lbl.ClassId = "Text:" + text;
             EditorArea.Children.Add(lbl);
         }
@@ -60,12 +110,11 @@ namespace JHLabel
             string data = await DisplayPromptAsync("Add 1D Barcode", "Enter barcode data:");
             if (string.IsNullOrEmpty(data))
                 return;
-            // Barcode 생성
             var barcodeImageSource = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.CODE_128, 200, 80);
             var img = new Image { Source = barcodeImageSource, WidthRequest = 200, HeightRequest = 80 };
             AbsoluteLayout.SetLayoutBounds(img, new Rect(150, 150, 200, 80));
             AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-            AddDragGesture(img);
+            AddDragAndGesture(img);
             img.ClassId = "Barcode1D:" + data;
             EditorArea.Children.Add(img);
         }
@@ -80,12 +129,12 @@ namespace JHLabel
             var img = new Image { Source = barcodeImageSource, WidthRequest = 150, HeightRequest = 150 };
             AbsoluteLayout.SetLayoutBounds(img, new Rect(200, 200, 150, 150));
             AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-            AddDragGesture(img);
+            AddDragAndGesture(img);
             img.ClassId = "Barcode2D:" + data;
             EditorArea.Children.Add(img);
         }
 
-        // 표(Table) 추가
+        // 표(Table) 추가 – Minimum 크기를 지정하여 제스처가 제대로 동작하도록 함
         private async void OnAddTableClicked(object sender, EventArgs e)
         {
             string rowsStr = await DisplayPromptAsync("Add Table", "Enter number of rows:", initialValue: "2");
@@ -101,28 +150,30 @@ namespace JHLabel
                     LineThickness = 3,
                     BackgroundColor = Colors.Transparent,
                     WidthRequest = cols * 150,
-                    HeightRequest = rows * 100
+                    HeightRequest = rows * 100,
+                    MinimumWidthRequest = cols * 150,
+                    MinimumHeightRequest = rows * 100
                 };
-                AbsoluteLayout.SetLayoutBounds(tableView, new Rect(250, 250, tableView.WidthRequest, tableView.HeightRequest));
+                AbsoluteLayout.SetLayoutBounds(tableView, new Rect(250, 250, cols * 150, rows * 100));
                 AbsoluteLayout.SetLayoutFlags(tableView, AbsoluteLayoutFlags.None);
-                AddDragGesture(tableView);
+                AddDragAndGesture(tableView);
                 tableView.ClassId = $"Table:{rows}:{cols}:150:100";
                 EditorArea.Children.Add(tableView);
             }
         }
 
-        // 현재 편집된 내용을 ZPL 문자열로 변환하여 DB에 저장
         private async void OnSaveLabelClicked(object sender, EventArgs e)
         {
+            // Save 로직 구현
             string name = await DisplayPromptAsync("Save Label", "Enter label name:");
             if (string.IsNullOrEmpty(name))
                 return;
             string zpl = GenerateZPLFromEditor();
             var model = new LabelModel { LabelName = name, ZPL = zpl };
-            
+
             int result = await _dbService.SaveLabelAsync(model);
-        
-            if (result > 0) 
+
+            if (result > 0)
             {
                 await DisplayAlert("Saved", "Label saved successfully", "OK");
                 LoadLabels();
@@ -133,12 +184,49 @@ namespace JHLabel
             }
         }
 
-        // 편집 영역의 각 요소를 ZPL 명령어로 변환 (텍스트, 1D/2D 바코드, 표)
+        // 레이어 순서 조정: Bring to Front
+        private void OnBringToFrontClicked(object sender, EventArgs e)
+        {
+            if (_selectedView == null)
+            {
+                DisplayAlert("Info", "No object selected.", "OK");
+                return;
+            }
+            EditorArea.Children.Remove(_selectedView);
+            EditorArea.Children.Add(_selectedView);
+            // 선택 표시와 리사이즈 핸들도 최상단에 배치
+            EditorArea.Children.Remove(_selectionIndicator);
+            EditorArea.Children.Add(_selectionIndicator);
+            EditorArea.Children.Remove(_resizeHandle);
+            EditorArea.Children.Add(_resizeHandle);
+        }
+
+        // 레이어 순서 조정: Send to Back
+        private void OnSendToBackClicked(object sender, EventArgs e)
+        {
+            if (_selectedView == null)
+            {
+                DisplayAlert("Info", "No object selected.", "OK");
+                return;
+            }
+            EditorArea.Children.Remove(_selectedView);
+            EditorArea.Children.Insert(0, _selectedView);
+            // 선택 표시와 리사이즈 핸들은 최상단에 유지
+            EditorArea.Children.Remove(_selectionIndicator);
+            EditorArea.Children.Add(_selectionIndicator);
+            EditorArea.Children.Remove(_resizeHandle);
+            EditorArea.Children.Add(_resizeHandle);
+        }
+
+        // 현재 편집된 내용을 ZPL 문자열로 변환 (선택 표시 및 리사이즈 핸들은 제외)
         private string GenerateZPLFromEditor()
         {
             string zpl = "^XA";
             foreach (var view in EditorArea.Children)
             {
+                if (view == _selectionIndicator || view == _resizeHandle)
+                    continue;
+
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
                 int x = (int)bounds.X;
                 int y = (int)bounds.Y;
@@ -194,9 +282,10 @@ namespace JHLabel
             return zpl;
         }
 
-        // 모든 추가된 뷰에 대해 드래그(팬) 제스처 부여
-        private void AddDragGesture(View view)
+        // 모든 추가된 뷰에 대해 드래그 및 선택 제스처 부여 (핀치 제스처 제거)
+        private void AddDragAndGesture(View view)
         {
+            // 드래그 제스처
             var panGesture = new PanGestureRecognizer();
             double startX = 0, startY = 0;
             panGesture.PanUpdated += (s, e) =>
@@ -213,17 +302,64 @@ namespace JHLabel
                         double newX = startX + e.TotalX;
                         double newY = startY + e.TotalY;
                         AbsoluteLayout.SetLayoutBounds(view, new Rect(newX, newY, current.Width, current.Height));
+                        if (_selectedView == view)
+                            UpdateSelectionIndicator();
                         break;
                 }
             };
             view.GestureRecognizers.Add(panGesture);
+
+            // 탭 제스처: 선택
+            var tapGesture = new TapGestureRecognizer();
+            tapGesture.Tapped += (s, e) => { SelectView(view); };
+            view.GestureRecognizers.Add(tapGesture);
         }
 
+        // 선택 시 호출: 선택된 뷰 저장 및 선택 표시 업데이트
+        private void SelectView(View view)
+        {
+            _selectedView = view;
+            UpdateSelectionIndicator();
+        }
+
+        // 선택된 객체의 위치/크기에 맞춰 선택 표시와 리사이즈 핸들 업데이트
+        private void UpdateSelectionIndicator()
+        {
+            if (_selectedView == null)
+            {
+                _selectionIndicator.IsVisible = false;
+                _resizeHandle.IsVisible = false;
+                return;
+            }
+            var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
+            // 만약 width/height가 0 이하이면 Measure를 통해 보정
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                var size = _selectedView.Measure(double.PositiveInfinity, double.PositiveInfinity);
+                bounds = new Rect(bounds.X, bounds.Y, size.Width, size.Height);
+                AbsoluteLayout.SetLayoutBounds(_selectedView, bounds);
+            }
+            double margin = 2;
+            AbsoluteLayout.SetLayoutBounds(_selectionIndicator, new Rect(bounds.X - margin, bounds.Y - margin, bounds.Width + margin * 2, bounds.Height + margin * 2));
+            _selectionIndicator.IsVisible = true;
+
+            double handleSize = 20;
+            AbsoluteLayout.SetLayoutBounds(_resizeHandle, new Rect(bounds.X + bounds.Width - handleSize, bounds.Y + bounds.Height - handleSize, handleSize, handleSize));
+            _resizeHandle.IsVisible = true;
+        }
+
+        // 라벨 전환 시 선택 해제 및 편집 영역 재구성
         private void LabelListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            _selectedView = null;
+            _selectionIndicator.IsVisible = false;
+            _resizeHandle.IsVisible = false;
+
             if (LabelListView.SelectedItem is LabelModel model)
             {
                 EditorArea.Children.Clear();
+                EditorArea.Children.Add(_selectionIndicator);
+                EditorArea.Children.Add(_resizeHandle);
                 ParseZPLToEditor(model.ZPL);
             }
         }
@@ -240,9 +376,9 @@ namespace JHLabel
                     int y = int.Parse(match.Groups[2].Value);
                     string content = match.Groups[3].Value;
                     var lbl = new Label { Text = content, BackgroundColor = Colors.White, TextColor = Colors.Black };
-                    AbsoluteLayout.SetLayoutBounds(lbl, new Rect(x, y, -1, -1));
+                    AbsoluteLayout.SetLayoutBounds(lbl, new Rect(x, y, 100, 30));
                     AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-                    AddDragGesture(lbl);
+                    AddDragAndGesture(lbl);
                     lbl.ClassId = "Text:" + content;
                     EditorArea.Children.Add(lbl);
                 }
@@ -260,7 +396,7 @@ namespace JHLabel
                     var img = new Image { Source = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.CODE_128, 200, 80), WidthRequest = 200, HeightRequest = 80 };
                     AbsoluteLayout.SetLayoutBounds(img, new Rect(x, y, 200, 80));
                     AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-                    AddDragGesture(img);
+                    AddDragAndGesture(img);
                     img.ClassId = "Barcode1D:" + data;
                     EditorArea.Children.Add(img);
                 }
@@ -278,7 +414,7 @@ namespace JHLabel
                     var img = new Image { Source = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.QR_CODE, 150, 150), WidthRequest = 150, HeightRequest = 150 };
                     AbsoluteLayout.SetLayoutBounds(img, new Rect(x, y, 150, 150));
                     AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-                    AddDragGesture(img);
+                    AddDragAndGesture(img);
                     img.ClassId = "Barcode2D:" + data;
                     EditorArea.Children.Add(img);
                 }
@@ -305,11 +441,13 @@ namespace JHLabel
                         LineThickness = 3,
                         BackgroundColor = Colors.Transparent,
                         WidthRequest = width,
-                        HeightRequest = height
+                        HeightRequest = height,
+                        MinimumWidthRequest = width,
+                        MinimumHeightRequest = height
                     };
                     AbsoluteLayout.SetLayoutBounds(tableView, new Rect(x, y, width, height));
                     AbsoluteLayout.SetLayoutFlags(tableView, AbsoluteLayoutFlags.None);
-                    AddDragGesture(tableView);
+                    AddDragAndGesture(tableView);
                     tableView.ClassId = $"Table:{rows}:{cols}:150:100";
                     EditorArea.Children.Add(tableView);
                 }
