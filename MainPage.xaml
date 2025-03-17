@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:views="clr-namespace:JHLabel.Views"
+    xmlns:models="clr-namespace:JHLabel.Models"
     Title="JHLabel">
   <Grid RowDefinitions="*,*" ColumnDefinitions="*,2*">
     <!-- 좌측: 저장된 라벨 목록 -->
@@ -11,7 +12,7 @@
                     SelectionMode="Single"
                     SelectionChanged="LabelListView_SelectionChanged">
       <CollectionView.ItemTemplate>
-        <DataTemplate>
+        <DataTemplate x:DataType="models:LabelModel">
           <Border Padding="10" Margin="5">
             <Label Text="{Binding LabelName}" />
           </Border>

@@ -66,7 +66,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="ZXing.Net.MAUI" Version="0.4.0" />
-		<PackageReference Include="SkiaSharp" Version="2.88.3" />
+		<PackageReference Include="SkiaSharp" Version="3.116.1" />
 		<PackageReference Include="sqlite-net-pcl" Version="1.8.116" />
 	</ItemGroup>
 
