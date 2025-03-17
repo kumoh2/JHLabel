@@ -23,16 +23,23 @@ namespace JHLabel.Services
 
             if (existingLabel != null)
             {
-                // 🔹 사용자에게 덮어쓸지 물어보기
-                bool overwrite = await App.Current.MainPage.DisplayAlert(
-                    "Duplicate Label",
-                    $"A label named '{label.LabelName}' already exists. Do you want to overwrite it?",
-                    "Yes", "No");
+                var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
 
-                if (!overwrite)
+                if (mainPage != null)
                 {
-                    // ❌ 사용자가 "No"를 선택하면 아무것도 하지 않음
-                    return 0;
+                    bool overwrite = await mainPage.DisplayAlert(
+                        "Duplicate Label",
+                        $"A label named '{label.LabelName}' already exists. Do you want to overwrite it?",
+                        "Yes", "No");
+
+                    if (!overwrite)
+                    {
+                        return 0; // ❌ 사용자가 "No"를 선택하면 아무것도 하지 않음
+                    }
+                }
+                else
+                {
+                    return 0; // ❌ 예외 처리: mainPage가 null인 경우
                 }
 
                 // ✅ "Yes" 선택 시 기존 데이터 업데이트
