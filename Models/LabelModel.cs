@@ -6,6 +6,7 @@ namespace JHLabel.Models
     {
         [PrimaryKey, AutoIncrement]
         public int Id { get; set; }
+        [Unique]
         public string LabelName { get; set; } = string.Empty;  // 기본값 할당
         public string ZPL { get; set; } = string.Empty;        // 기본값 할당
     }
