@@ -419,6 +419,10 @@ namespace JHLabel
             double handleSize = 20;
             AbsoluteLayout.SetLayoutBounds(_resizeHandle, new Rect(bounds.X + bounds.Width - handleSize, bounds.Y + bounds.Height - handleSize, handleSize, handleSize));
             _resizeHandle.IsVisible = true;
+      
+            // _resizeHandle이 다른 요소들보다 항상 위에 보이도록 강제로 최상단으로 올림
+            EditorArea.Children.Remove(_resizeHandle);
+            EditorArea.Children.Add(_resizeHandle);
         }
 
         // 라벨 전환 시 선택 해제 및 편집 영역 재구성
