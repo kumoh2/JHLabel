@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:views="clr-namespace:JHLabel.Views"
     Title="JHLabel">
-  <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,2*">
+  <Grid RowDefinitions="*,*" ColumnDefinitions="*,2*">
     <!-- 좌측: 저장된 라벨 목록 -->
     <CollectionView x:Name="LabelListView" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
                     SelectionMode="Single"
@@ -18,17 +18,18 @@
         </DataTemplate>
       </CollectionView.ItemTemplate>
     </CollectionView>
-
-    <!-- 우측: 라벨 편집 영역 (AbsoluteLayout) -->
-    <AbsoluteLayout x:Name="EditorArea" Grid.Row="0" Grid.Column="1" BackgroundColor="LightGray"/>
-
-    <!-- 하단 우측: 버튼 영역 -->
-    <StackLayout Orientation="Horizontal" Grid.Row="1" Grid.Column="1" HorizontalOptions="Center" Spacing="10" Padding="10">
+    
+    <!--좌측 하단: 버튼 영역 -->
+    <StackLayout Orientation="Vertical" Grid.Row="1" Grid.Column="0" Spacing="10" Padding="10">
       <Button Text="Add Text" Clicked="OnAddTextClicked"/>
       <Button Text="Add 1D Barcode" Clicked="OnAddBarcode1DClicked"/>
       <Button Text="Add 2D Barcode" Clicked="OnAddBarcode2DClicked"/>
       <Button Text="Add Table" Clicked="OnAddTableClicked"/>
       <Button Text="Save Label" Clicked="OnSaveLabelClicked"/>
     </StackLayout>
+
+    <!-- 우측: 라벨 편집 영역 (AbsoluteLayout) -->
+    <AbsoluteLayout x:Name="EditorArea" Grid.Row="0" Grid.Column="1" BackgroundColor="white"/>
+
   </Grid>
 </ContentPage>
