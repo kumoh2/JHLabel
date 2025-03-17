@@ -119,9 +119,18 @@ namespace JHLabel
                 return;
             string zpl = GenerateZPLFromEditor();
             var model = new LabelModel { LabelName = name, ZPL = zpl };
-            await _dbService.SaveLabelAsync(model);
-            await DisplayAlert("Saved", "Label saved successfully", "OK");
-            LoadLabels();
+            
+            int result = await _dbService.SaveLabelAsync(model);
+        
+            if (result > 0) 
+            {
+                await DisplayAlert("Saved", "Label saved successfully", "OK");
+                LoadLabels();
+            }
+            else if (result == 0)
+            {
+                await DisplayAlert("Not Saved", "Label not saved", "OK");
+            }
         }
 
         // 편집 영역의 각 요소를 ZPL 명령어로 변환 (텍스트, 1D/2D 바코드, 표)
