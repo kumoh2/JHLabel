@@ -16,7 +16,7 @@ namespace JHLabel
         DatabaseService _dbService;
         public List<LabelModel> Labels { get; set; } = new List<LabelModel>();
 
-        // 선택된 뷰 및 선택 표시용 오버레이(Border)와 리사이즈 핸들(BoxView)
+        // 선택된 뷰 및 선택 표시용 오버레이(Border)
         private View? _selectedView;
         private Border _selectionIndicator;
 
@@ -24,8 +24,7 @@ namespace JHLabel
         {
             InitializeComponent();
             // SQLite 데이터베이스 초기화
-            string dbPath;
-            dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
+            string dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
             System.Diagnostics.Debug.WriteLine($"Database Path: {dbPath}");
             _dbService = new DatabaseService(dbPath);
             LoadLabels();
@@ -48,7 +47,7 @@ namespace JHLabel
             LabelListView.ItemsSource = Labels;
         }
 
-        // 텍스트 추가 (기본 크기를 지정하여 Measure 문제를 회피)
+        // 텍스트 추가 (기본 크기 지정)
         private async void OnAddTextClicked(object sender, EventArgs e)
         {
             string text = await DisplayPromptAsync("Add Text", "Enter text:");
@@ -56,7 +55,7 @@ namespace JHLabel
                 return;
 
             var lbl = new Label { Text = text, BackgroundColor = Colors.White, TextColor = Colors.Black };
-            // 기본 크기를 명시적으로 설정
+            // 기본 크기를 mm 단위로 설정 (예: 100mm 위치, 100x30mm 크기)
             AbsoluteLayout.SetLayoutBounds(lbl, new Rect(100, 100, 100, 30));
             AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
             AddDragAndGesture(lbl);
@@ -94,7 +93,7 @@ namespace JHLabel
             EditorArea.Children.Add(img);
         }
 
-        // 표(Table) 추가 – Minimum 크기를 지정하여 제스처가 제대로 동작하도록 함
+        // 표(Table) 추가 – 최소 크기 지정
         private async void OnAddTableClicked(object sender, EventArgs e)
         {
             string rowsStr = await DisplayPromptAsync("Add Table", "Enter number of rows:", initialValue: "2");
@@ -114,6 +113,7 @@ namespace JHLabel
                     MinimumWidthRequest = cols * 150,
                     MinimumHeightRequest = rows * 100
                 };
+                // 위치 및 크기는 mm 단위로 지정
                 AbsoluteLayout.SetLayoutBounds(tableView, new Rect(250, 250, cols * 150, rows * 100));
                 AbsoluteLayout.SetLayoutFlags(tableView, AbsoluteLayoutFlags.None);
                 AddDragAndGesture(tableView);
@@ -133,7 +133,6 @@ namespace JHLabel
             var model = new LabelModel { LabelName = name, ZPL = zpl, PGL = pgl };
 
             int result = await _dbService.SaveLabelAsync(model);
-
             if (result > 0)
             {
                 await DisplayAlert("Saved", "Label saved successfully", "OK");
@@ -169,7 +168,14 @@ namespace JHLabel
             EditorArea.Children.Insert(0, _selectedView);
         }
 
-        // 현재 편집된 내용을 ZPL 문자열로 변환 (선택 표시 및 리사이즈 핸들은 제외)
+        // DPI 300 기준, mm 단위를 점(dots)으로 변환하는 함수 (이전 ConvertMMToDots -> ConvertDpiDots)
+        private int ConvertDpiDots(double mm)
+        {
+            const int printerDPI = 300;
+            return (int)(mm / 25.4 * printerDPI);
+        }
+
+        // EditorArea 내 개체들을 ZPL 문자열로 변환 (선택 표시 제외)
         private string GenerateZPLFromEditor()
         {
             string zpl = "^XA";
@@ -179,8 +185,9 @@ namespace JHLabel
                     continue;
 
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                int x = (int)bounds.X;
-                int y = (int)bounds.Y;
+                // 좌표를 mm 단위에서 점(dots)으로 변환
+                int x = ConvertDpiDots(bounds.X);
+                int y = ConvertDpiDots(bounds.Y);
                 if (view is Label lbl)
                 {
                     zpl += $"^FO{x},{y}^A0N,30,30^FD{lbl.Text}^FS";
@@ -233,20 +240,17 @@ namespace JHLabel
             return zpl;
         }
 
-        // PGL 명령어 생성 메서드 추가 (프린트로닉스 PGL 언어 형식 예시)
+        // EditorArea 내 개체들을 PGL 문자열로 변환 (선택 표시 제외)
         private string GeneratePGLFromEditor()
         {
-            // 시작 및 종료 명령은 프린트로닉스 PGL 언어 규격에 맞게 변경하세요.
             string pgl = "<PGL_START>\n";
             foreach (var view in EditorArea.Children)
             {
                 if (view == _selectionIndicator)
                     continue;
-
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                int x = (int)bounds.X;
-                int y = (int)bounds.Y;
-
+                int x = ConvertDpiDots(bounds.X);
+                int y = ConvertDpiDots(bounds.Y);
                 if (view is Label lbl)
                 {
                     // 텍스트: TEXT x,y,폰트번호,크기,"텍스트"
@@ -305,7 +309,7 @@ namespace JHLabel
             return pgl;
         }
 
-        // 모든 추가된 뷰에 대해 드래그 및 선택 제스처 부여 (핀치 제스처 제거)
+        // 모든 추가된 뷰에 대해 드래그 및 선택 제스처 부여
         private void AddDragAndGesture(View view)
         {
             // 드래그 제스처
@@ -345,7 +349,7 @@ namespace JHLabel
             UpdateSelectionIndicator();
         }
 
-        // 선택된 객체의 위치/크기에 맞춰 선택 표시와 리사이즈 핸들 업데이트
+        // 선택된 객체의 위치/크기에 맞춰 선택 표시 업데이트
         private void UpdateSelectionIndicator()
         {
             if (_selectedView == null)
