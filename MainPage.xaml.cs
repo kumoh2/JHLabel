@@ -244,7 +244,7 @@ namespace JHLabel
                         if (img.ClassId.StartsWith("Barcode1D:"))
                         {
                             string data = img.ClassId.Substring("Barcode1D:".Length);
-                            zpl += $"^FO{x},{y}^BCN,80,Y,N,N^FD{data}^FS";
+                            zpl += $"^FO{x},{y}^BCN,80,N,N,N^FD{data}^FS";
                         }
                         else if (img.ClassId.StartsWith("Barcode2D:"))
                         {
@@ -281,7 +281,7 @@ namespace JHLabel
                         if (img.ClassId.StartsWith("Barcode1D:"))
                         {
                             string data = img.ClassId.Substring("Barcode1D:".Length);
-                            pgl += $" BARCODE1D {x},{y},CODE128,80,\"{data}\";\n";
+                            pgl += $" BARCODE1D {x},{y},CODE128,80,\"{data}\",NOHR;\n";
                         }
                         else if (img.ClassId.StartsWith("Barcode2D:"))
                         {
