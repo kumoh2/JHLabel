@@ -52,13 +52,13 @@ namespace JHLabel
             string labelName = await DisplayPromptAsync("New Label", "Enter label name:");
             if (string.IsNullOrEmpty(labelName))
                 return;
-            string dpiStr = await DisplayPromptAsync("New Label", "Enter printer DPI (e.g., 200,300,600):", initialValue: "300");
+            string dpiStr = await DisplayPromptAsync("New Label", "Enter printer DPI (e.g., 203,300,600):", initialValue: "203");
             if (!int.TryParse(dpiStr, out int dpi))
                 dpi = 203;
-            string widthStr = await DisplayPromptAsync("New Label", "Enter label width in mm:", initialValue: "210");
+            string widthStr = await DisplayPromptAsync("New Label", "Enter label width in mm:", initialValue: "45");
             if (!double.TryParse(widthStr, out double widthMm))
                 widthMm = 45;
-            string heightStr = await DisplayPromptAsync("New Label", "Enter label height in mm:", initialValue: "297");
+            string heightStr = await DisplayPromptAsync("New Label", "Enter label height in mm:", initialValue: "70");
             if (!double.TryParse(heightStr, out double heightMm))
                 heightMm = 70;
 
@@ -85,16 +85,9 @@ namespace JHLabel
                 return;
             }
 
-            // EditorArea 초기화 (예시: 기본 텍스트 추가)
+            // EditorArea 초기화
             EditorArea.Children.Clear();
             EditorArea.Children.Add(_selectionIndicator);
-            var defaultLabel = new Label { Text = "New Label", BackgroundColor = Colors.White, TextColor = Colors.Black };
-            // 디자인 좌표는 mm 단위 (예: 50,50 위치, 100x30 크기)
-            AbsoluteLayout.SetLayoutBounds(defaultLabel, new Rect(50, 50, 100, 30));
-            AbsoluteLayout.SetLayoutFlags(defaultLabel, AbsoluteLayoutFlags.None);
-            AddDragAndGesture(defaultLabel);
-            defaultLabel.ClassId = "Text:New Label";
-            EditorArea.Children.Add(defaultLabel);
         }
 
         // Save Label: 현재 편집 중인 라벨 디자인 데이터를 ZPL/PGL 문자열로 변환하고 DB에 저장(업데이트)
