@@ -90,6 +90,42 @@ namespace JHLabel
             EditorArea.Children.Add(_selectionIndicator);
         }
 
+        private async void OnDeleteLabelClicked(object sender, EventArgs e)
+        {
+            if (currentLabelDesign == null)
+            {
+                await DisplayAlert("Info", "No label selected.", "OK");
+                return;
+            }
+            
+            // 삭제 확인: 사용자가 라벨 이름을 정확하게 입력하도록 함
+            string confirmationName = await DisplayPromptAsync("Confirm Delete", 
+                $"To delete '{currentLabelDesign.LabelName}', please type the label name:");
+            
+            if (confirmationName != currentLabelDesign.LabelName)
+            {
+                await DisplayAlert("Error", "Label name does not match. Deletion cancelled.", "OK");
+                return;
+            }
+            
+            // DB에서 삭제
+            int result = await _dbService.DeleteLabelAsync(currentLabelDesign);
+            if (result > 0)
+            {
+                await DisplayAlert("Deleted", "Label deleted successfully", "OK");
+                // 선택된 라벨을 해제하고 에디터 영역 초기화
+                currentLabelDesign = null;
+                EditorArea.Children.Clear();
+                EditorArea.Children.Add(_selectionIndicator);
+                // 라벨 리스트 UI 갱신
+                LoadLabels();
+            }
+            else
+            {
+                await DisplayAlert("Error", "Failed to delete label.", "OK");
+            }
+        }
+
         // Save Label: 현재 편집 중인 라벨 디자인 데이터를 ZPL/PGL 문자열로 변환하고 DB에 저장(업데이트)
         private async void OnSaveLabelClicked(object sender, EventArgs e)
         {

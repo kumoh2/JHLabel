@@ -89,5 +89,11 @@ namespace JHLabel.Services
                     label);
             }
         }
+
+        public async Task<int> DeleteLabelAsync(LabelModel label)
+        {
+            using var connection = GetConnection();
+            return await connection.ExecuteAsync("DELETE FROM LabelModel WHERE Id = @Id", new { label.Id });
+        }
     }
 }

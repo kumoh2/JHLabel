@@ -7,34 +7,41 @@
     xmlns:models="clr-namespace:JHLabel.Models"
     Title="JHLabel">
   <Grid ColumnDefinitions="*,2*">
-    <!-- 좌측 영역: 라벨 목록과 버튼 영역 -->
-    <StackLayout Grid.Column="0" Spacing="10" Padding="10">
-      <!-- 라벨 목록이 많아질 경우 스크롤 가능 -->
-      <ScrollView>
-        <CollectionView x:Name="LabelListView"
-                        SelectionMode="Single"
-                        SelectionChanged="LabelListView_SelectionChanged">
-          <CollectionView.ItemTemplate>
-            <DataTemplate x:DataType="models:LabelModel">
-                <Border Margin="5" Padding="10">
-                  <Label Text="{Binding LabelName}" />
-                </Border>
-            </DataTemplate>
-          </CollectionView.ItemTemplate>
-        </CollectionView>
-      </ScrollView>
-      <!-- 버튼 영역 -->
-      <StackLayout Orientation="Vertical" Spacing="10">
-        <Button Text="New Label" Clicked="OnNewLabelClicked"/>
-        <Button Text="Add Text" Clicked="OnAddTextClicked"/>
-        <Button Text="Add 1D Barcode" Clicked="OnAddBarcode1DClicked"/>
-        <Button Text="Add 2D Barcode" Clicked="OnAddBarcode2DClicked"/>
-        <Button Text="Add Line"/>
-        <Button Text="Save Label" Clicked="OnSaveLabelClicked"/>
-        <Button Text="Bring to Front" Clicked="OnBringToFrontClicked"/>
-        <Button Text="Send to Back" Clicked="OnSendToBackClicked"/>
-      </StackLayout>
+ <!-- 좌측 영역 -->
+  <Grid Grid.Column="0">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" />   <!-- 라벨 목록: 가변 높이 -->
+      <RowDefinition Height="Auto" /> <!-- 버튼 영역: 필요한 만큼만 -->
+    </Grid.RowDefinitions>
+
+    <!-- 라벨 목록 스크롤뷰 -->
+    <ScrollView Grid.Row="0">
+      <CollectionView x:Name="LabelListView"
+                      SelectionMode="Single"
+                      SelectionChanged="LabelListView_SelectionChanged">
+        <CollectionView.ItemTemplate>
+          <DataTemplate x:DataType="models:LabelModel">
+            <Border Margin="5" Padding="10">
+              <Label Text="{Binding LabelName}" />
+            </Border>
+          </DataTemplate>
+        </CollectionView.ItemTemplate>
+      </CollectionView>
+    </ScrollView>
+
+    <!-- 버튼 영역 -->
+    <StackLayout Grid.Row="1" Orientation="Vertical" Spacing="10" Padding="10">
+      <Button Text="New Label" Clicked="OnNewLabelClicked"/>
+      <Button Text="Delete Label" Clicked="OnDeleteLabelClicked"/>
+      <Button Text="Add Text" Clicked="OnAddTextClicked"/>
+      <Button Text="Add 1D Barcode" Clicked="OnAddBarcode1DClicked"/>
+      <Button Text="Add 2D Barcode" Clicked="OnAddBarcode2DClicked"/>
+      <Button Text="Add Line"/>
+      <Button Text="Save Label" Clicked="OnSaveLabelClicked"/>
+      <Button Text="Bring to Front" Clicked="OnBringToFrontClicked"/>
+      <Button Text="Send to Back" Clicked="OnSendToBackClicked"/>
     </StackLayout>
+  </Grid>
 
     <!-- 우측: 라벨 편집 영역 -->
     <AbsoluteLayout x:Name="EditorArea" Grid.Column="1" BackgroundColor="White"/>
