@@ -25,10 +25,11 @@
       </ScrollView>
       <!-- 버튼 영역 -->
       <StackLayout Orientation="Vertical" Spacing="10">
+        <Button Text="New Label" Clicked="OnNewLabelClicked"/>
         <Button Text="Add Text" Clicked="OnAddTextClicked"/>
         <Button Text="Add 1D Barcode" Clicked="OnAddBarcode1DClicked"/>
         <Button Text="Add 2D Barcode" Clicked="OnAddBarcode2DClicked"/>
-        <Button Text="Add Table" Clicked="OnAddTableClicked"/>
+        <Button Text="Add Line"/>
         <Button Text="Save Label" Clicked="OnSaveLabelClicked"/>
         <Button Text="Bring to Front" Clicked="OnBringToFrontClicked"/>
         <Button Text="Send to Back" Clicked="OnSendToBackClicked"/>

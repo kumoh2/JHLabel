@@ -1,8 +1,4 @@
-﻿using Microsoft.Maui.Controls;
-using Microsoft.Maui.Layouts;
-using Microsoft.Maui.Graphics;
-using System;
-using System.Collections.Generic;
+﻿using Microsoft.Maui.Layouts;
 using System.Text.RegularExpressions;
 using JHLabel.Models;
 using JHLabel.Services;
@@ -20,16 +16,19 @@ namespace JHLabel
         private View? _selectedView;
         private Border _selectionIndicator;
 
+        // 현재 편집 중인 라벨 디자인 데이터 (디자인 데이터는 mm 단위, DPI 등)
+        private LabelModel? currentLabelDesign;
+
         public MainPage()
         {
             InitializeComponent();
-            // SQLite 데이터베이스 초기화
+
             string dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
             System.Diagnostics.Debug.WriteLine($"Database Path: {dbPath}");
             _dbService = new DatabaseService(dbPath);
             LoadLabels();
 
-            // 선택 표시용 Border 초기화 (Frame 대신 사용)
+            // 선택 표시용 Border 초기화
             _selectionIndicator = new Border
             {
                 Stroke = Colors.Blue,
@@ -47,7 +46,72 @@ namespace JHLabel
             LabelListView.ItemsSource = Labels;
         }
 
-        // 텍스트 추가 (기본 크기 지정)
+        // 새 라벨 생성: 사용자에게 라벨 이름, DPI, 용지 폭, 높이(mm)를 입력받아 새 디자인 데이터 생성
+        private async void OnNewLabelClicked(object sender, EventArgs e)
+        {
+            string labelName = await DisplayPromptAsync("New Label", "Enter label name:");
+            if (string.IsNullOrEmpty(labelName))
+                return;
+            string dpiStr = await DisplayPromptAsync("New Label", "Enter printer DPI (e.g., 200,300,600):", initialValue: "300");
+            if (!int.TryParse(dpiStr, out int dpi))
+                dpi = 203;
+            string widthStr = await DisplayPromptAsync("New Label", "Enter label width in mm:", initialValue: "210");
+            if (!double.TryParse(widthStr, out double widthMm))
+                widthMm = 45;
+            string heightStr = await DisplayPromptAsync("New Label", "Enter label height in mm:", initialValue: "297");
+            if (!double.TryParse(heightStr, out double heightMm))
+                heightMm = 70;
+
+            // 새로운 라벨 디자인 데이터 생성 (ZPL/PGL은 빈 문자열로 초기화)
+            currentLabelDesign = new LabelModel
+            {
+                LabelName = labelName,
+                DPI = dpi,
+                PaperWidthMm = widthMm,
+                PaperHeightMm = heightMm,
+                ZPL = string.Empty,
+                PGL = string.Empty
+            };
+
+            // EditorArea 초기화 (예시: 기본 텍스트 추가)
+            EditorArea.Children.Clear();
+            EditorArea.Children.Add(_selectionIndicator);
+            var defaultLabel = new Label { Text = "New Label", BackgroundColor = Colors.White, TextColor = Colors.Black };
+            // 디자인 좌표는 mm 단위 (예: 50,50 위치, 100x30 크기)
+            AbsoluteLayout.SetLayoutBounds(defaultLabel, new Rect(50, 50, 100, 30));
+            AbsoluteLayout.SetLayoutFlags(defaultLabel, AbsoluteLayoutFlags.None);
+            AddDragAndGesture(defaultLabel);
+            defaultLabel.ClassId = "Text:New Label";
+            EditorArea.Children.Add(defaultLabel);
+        }
+
+        // Save Label: 현재 편집 중인 라벨 디자인 데이터를 ZPL/PGL 문자열로 변환하고 DB에 저장(업데이트)
+        private async void OnSaveLabelClicked(object sender, EventArgs e)
+        {
+            if (currentLabelDesign == null)
+            {
+                await DisplayAlert("Error", "No label design available. Create a new label first.", "OK");
+                return;
+            }
+
+            // DPI와 용지 크기를 기반으로 출력 문자열 생성
+            string zpl = GenerateZPLFromEditor(currentLabelDesign.DPI, currentLabelDesign.PaperWidthMm, currentLabelDesign.PaperHeightMm);
+            string pgl = GeneratePGLFromEditor(currentLabelDesign.DPI, currentLabelDesign.PaperWidthMm, currentLabelDesign.PaperHeightMm);
+            currentLabelDesign.ZPL = zpl;
+            currentLabelDesign.PGL = pgl;
+
+            int result = await _dbService.SaveLabelAsync(currentLabelDesign);
+            if (result > 0)
+            {
+                await DisplayAlert("Saved", "Label saved successfully", "OK");
+                LoadLabels();
+            }
+            else
+            {
+                await DisplayAlert("Not Saved", "Label not saved", "OK");
+            }
+        }
+
         private async void OnAddTextClicked(object sender, EventArgs e)
         {
             string text = await DisplayPromptAsync("Add Text", "Enter text:");
@@ -93,58 +157,7 @@ namespace JHLabel
             EditorArea.Children.Add(img);
         }
 
-        // 표(Table) 추가 – 최소 크기 지정
-        private async void OnAddTableClicked(object sender, EventArgs e)
-        {
-            string rowsStr = await DisplayPromptAsync("Add Table", "Enter number of rows:", initialValue: "2");
-            string colsStr = await DisplayPromptAsync("Add Table", "Enter number of columns:", initialValue: "2");
-            if (int.TryParse(rowsStr, out int rows) && int.TryParse(colsStr, out int cols))
-            {
-                var tableView = new Views.TableDrawableView
-                {
-                    Rows = rows,
-                    Columns = cols,
-                    CellWidth = 150,
-                    CellHeight = 100,
-                    LineThickness = 3,
-                    BackgroundColor = Colors.Transparent,
-                    WidthRequest = cols * 150,
-                    HeightRequest = rows * 100,
-                    MinimumWidthRequest = cols * 150,
-                    MinimumHeightRequest = rows * 100
-                };
-                // 위치 및 크기는 mm 단위로 지정
-                AbsoluteLayout.SetLayoutBounds(tableView, new Rect(250, 250, cols * 150, rows * 100));
-                AbsoluteLayout.SetLayoutFlags(tableView, AbsoluteLayoutFlags.None);
-                AddDragAndGesture(tableView);
-                tableView.ClassId = $"Table:{rows}:{cols}:150:100";
-                EditorArea.Children.Add(tableView);
-            }
-        }
-
-        private async void OnSaveLabelClicked(object sender, EventArgs e)
-        {
-            // Save 로직 구현
-            string name = await DisplayPromptAsync("Save Label", "Enter label name:");
-            if (string.IsNullOrEmpty(name))
-                return;
-            string zpl = GenerateZPLFromEditor();
-            string pgl = GeneratePGLFromEditor();  // PGL 문자열 생성
-            var model = new LabelModel { LabelName = name, ZPL = zpl, PGL = pgl };
-
-            int result = await _dbService.SaveLabelAsync(model);
-            if (result > 0)
-            {
-                await DisplayAlert("Saved", "Label saved successfully", "OK");
-                LoadLabels();
-            }
-            else if (result == 0)
-            {
-                await DisplayAlert("Not Saved", "Label not saved", "OK");
-            }
-        }
-
-        // 레이어 순서 조정: Bring to Front
+        // 레이어 순서 조정: Bring to Front / Send to Back
         private void OnBringToFrontClicked(object sender, EventArgs e)
         {
             if (_selectedView == null)
@@ -156,7 +169,6 @@ namespace JHLabel
             EditorArea.Children.Add(_selectedView);
         }
 
-        // 레이어 순서 조정: Send to Back
         private void OnSendToBackClicked(object sender, EventArgs e)
         {
             if (_selectedView == null)
@@ -168,15 +180,8 @@ namespace JHLabel
             EditorArea.Children.Insert(0, _selectedView);
         }
 
-        // DPI 300 기준, mm 단위를 점(dots)으로 변환하는 함수 (이전 ConvertMMToDots -> ConvertDpiDots)
-        private int ConvertDpiDots(double mm)
-        {
-            const int printerDPI = 300;
-            return (int)(mm / 25.4 * printerDPI);
-        }
-
-        // EditorArea 내 개체들을 ZPL 문자열로 변환 (선택 표시 제외)
-        private string GenerateZPLFromEditor()
+        // ZPL 문자열 생성: 디자인 데이터는 mm 단위로 저장되어 있으며, 출력 시에만 DPI 변환 적용
+        private string GenerateZPLFromEditor(int dpi, double paperWidthMm, double paperHeightMm)
         {
             string zpl = "^XA";
             foreach (var view in EditorArea.Children)
@@ -185,9 +190,8 @@ namespace JHLabel
                     continue;
 
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                // 좌표를 mm 단위에서 점(dots)으로 변환
-                int x = ConvertDpiDots(bounds.X);
-                int y = ConvertDpiDots(bounds.Y);
+                int x = (int)bounds.X;
+                int y = (int)bounds.Y;
                 if (view is Label lbl)
                 {
                     zpl += $"^FO{x},{y}^A0N,30,30^FD{lbl.Text}^FS";
@@ -208,40 +212,13 @@ namespace JHLabel
                         }
                     }
                 }
-                else if (view is Views.TableDrawableView tableView)
-                {
-                    if (!string.IsNullOrEmpty(tableView.ClassId))
-                    {
-                        var parts = tableView.ClassId.Split(':');
-                        if (parts.Length == 5)
-                        {
-                            int rows = int.Parse(parts[1]);
-                            int cols = int.Parse(parts[2]);
-                            int cellWidth = int.Parse(parts[3]);
-                            int cellHeight = int.Parse(parts[4]);
-                            int tableWidth = cols * cellWidth;
-                            int tableHeight = rows * cellHeight;
-                            zpl += $"^FO{x},{y}^GB{tableWidth},{tableHeight},3^FS";
-                            for (int i = 1; i < cols; i++)
-                            {
-                                int lineX = x + i * cellWidth;
-                                zpl += $"^FO{lineX},{y}^GB3,{tableHeight},3^FS";
-                            }
-                            for (int j = 1; j < rows; j++)
-                            {
-                                int lineY = y + j * cellHeight;
-                                zpl += $"^FO{x},{lineY}^GB{tableWidth},3,3^FS";
-                            }
-                        }
-                    }
-                }
             }
             zpl += "^XZ";
             return zpl;
         }
 
-        // EditorArea 내 개체들을 PGL 문자열로 변환 (선택 표시 제외)
-        private string GeneratePGLFromEditor()
+        // PGL 문자열 생성: 동일한 방식으로 DPI 및 용지 크기 적용
+        private string GeneratePGLFromEditor(int dpi, double paperWidthMm, double paperHeightMm)
         {
             string pgl = "<PGL_START>\n";
             foreach (var view in EditorArea.Children)
@@ -249,11 +226,11 @@ namespace JHLabel
                 if (view == _selectionIndicator)
                     continue;
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                int x = ConvertDpiDots(bounds.X);
-                int y = ConvertDpiDots(bounds.Y);
+                int x = (int)bounds.X;
+                int y = (int)bounds.Y;
+
                 if (view is Label lbl)
                 {
-                    // 텍스트: TEXT x,y,폰트번호,크기,"텍스트"
                     pgl += $" TEXT {x},{y},0,30,\"{lbl.Text}\";\n";
                 }
                 else if (view is Image img)
@@ -263,44 +240,12 @@ namespace JHLabel
                         if (img.ClassId.StartsWith("Barcode1D:"))
                         {
                             string data = img.ClassId.Substring("Barcode1D:".Length);
-                            // 1D 바코드: BARCODE1D x,y, CODE128, 높이,"데이터"
                             pgl += $" BARCODE1D {x},{y},CODE128,80,\"{data}\";\n";
                         }
                         else if (img.ClassId.StartsWith("Barcode2D:"))
                         {
                             string data = img.ClassId.Substring("Barcode2D:".Length);
-                            // 2D 바코드 (QR): BARCODE2D x,y,QR,사이즈,"데이터"
                             pgl += $" BARCODE2D {x},{y},QR,150,\"{data}\";\n";
-                        }
-                    }
-                }
-                else if (view is Views.TableDrawableView tableView)
-                {
-                    if (!string.IsNullOrEmpty(tableView.ClassId))
-                    {
-                        var parts = tableView.ClassId.Split(':');
-                        if (parts.Length == 5)
-                        {
-                            int rows = int.Parse(parts[1]);
-                            int cols = int.Parse(parts[2]);
-                            int cellWidth = int.Parse(parts[3]);
-                            int cellHeight = int.Parse(parts[4]);
-                            int tableWidth = cols * cellWidth;
-                            int tableHeight = rows * cellHeight;
-                            // 표의 외곽선을 그리는 명령어 (예: RECT x,y,width,height,두께)
-                            pgl += $" RECT {x},{y},{tableWidth},{tableHeight},3;\n";
-                            // 열 구분선 (수직선)
-                            for (int i = 1; i < cols; i++)
-                            {
-                                int lineX = x + i * cellWidth;
-                                pgl += $" LINE {lineX},{y} TO {lineX},{y + tableHeight},3;\n";
-                            }
-                            // 행 구분선 (수평선)
-                            for (int j = 1; j < rows; j++)
-                            {
-                                int lineY = y + j * cellHeight;
-                                pgl += $" LINE {x},{lineY} TO {x + tableWidth},{lineY},3;\n";
-                            }
                         }
                     }
                 }
@@ -309,10 +254,9 @@ namespace JHLabel
             return pgl;
         }
 
-        // 모든 추가된 뷰에 대해 드래그 및 선택 제스처 부여
+        // 드래그 및 선택 제스처 부여
         private void AddDragAndGesture(View view)
         {
-            // 드래그 제스처
             var panGesture = new PanGestureRecognizer();
             double startX = 0, startY = 0;
             panGesture.PanUpdated += (s, e) =>
@@ -336,20 +280,19 @@ namespace JHLabel
             };
             view.GestureRecognizers.Add(panGesture);
 
-            // 탭 제스처: 선택
             var tapGesture = new TapGestureRecognizer();
             tapGesture.Tapped += (s, e) => { SelectView(view); };
             view.GestureRecognizers.Add(tapGesture);
         }
 
-        // 선택 시 호출: 선택된 뷰 저장 및 선택 표시 업데이트
+        // 개체 선택 시 호출
         private void SelectView(View view)
         {
             _selectedView = view;
             UpdateSelectionIndicator();
         }
 
-        // 선택된 객체의 위치/크기에 맞춰 선택 표시 업데이트
+        // 선택 표시 업데이트
         private void UpdateSelectionIndicator()
         {
             if (_selectedView == null)
@@ -358,7 +301,6 @@ namespace JHLabel
                 return;
             }
             var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
-            // 만약 width/height가 0 이하이면 Measure를 통해 보정
             if (bounds.Width <= 0 || bounds.Height <= 0)
             {
                 var size = _selectedView.Measure(double.PositiveInfinity, double.PositiveInfinity);
@@ -370,20 +312,21 @@ namespace JHLabel
             _selectionIndicator.IsVisible = true;
         }
 
-        // 라벨 전환 시 선택 해제 및 편집 영역 재구성
+        // 라벨 전환 시: 선택 해제 및 편집 영역 재구성 (ZPL 파싱)
         private void LabelListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             _selectedView = null;
             _selectionIndicator.IsVisible = false;
-
             if (LabelListView.SelectedItem is LabelModel model)
             {
                 EditorArea.Children.Clear();
                 EditorArea.Children.Add(_selectionIndicator);
+                // 로드 시 ParseZPLToEditor 호출 (필요에 따라 구현)
                 ParseZPLToEditor(model.ZPL);
             }
         }
 
+        // ZPL 문자열을 EditorArea에 파싱 (예시; 필요에 따라 구현)
         private void ParseZPLToEditor(string zpl)
         {
             // 텍스트 파싱
@@ -437,39 +380,6 @@ namespace JHLabel
                     AddDragAndGesture(img);
                     img.ClassId = "Barcode2D:" + data;
                     EditorArea.Children.Add(img);
-                }
-            }
-
-            // 표(Table) 파싱
-            var regexTable = new Regex(@"\^FO(\d+),(\d+)\^GB(\d+),(\d+),3\^FS");
-            foreach (Match match in regexTable.Matches(zpl))
-            {
-                if (match.Groups.Count == 5)
-                {
-                    int x = int.Parse(match.Groups[1].Value);
-                    int y = int.Parse(match.Groups[2].Value);
-                    int width = int.Parse(match.Groups[3].Value);
-                    int height = int.Parse(match.Groups[4].Value);
-                    int cols = width / 150;
-                    int rows = height / 100;
-                    var tableView = new Views.TableDrawableView
-                    {
-                        Rows = rows,
-                        Columns = cols,
-                        CellWidth = 150,
-                        CellHeight = 100,
-                        LineThickness = 3,
-                        BackgroundColor = Colors.Transparent,
-                        WidthRequest = width,
-                        HeightRequest = height,
-                        MinimumWidthRequest = width,
-                        MinimumHeightRequest = height
-                    };
-                    AbsoluteLayout.SetLayoutBounds(tableView, new Rect(x, y, width, height));
-                    AbsoluteLayout.SetLayoutFlags(tableView, AbsoluteLayoutFlags.None);
-                    AddDragAndGesture(tableView);
-                    tableView.ClassId = $"Table:{rows}:{cols}:150:100";
-                    EditorArea.Children.Add(tableView);
                 }
             }
         }

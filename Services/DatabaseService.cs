@@ -28,7 +28,10 @@ namespace JHLabel.Services
                     Id INTEGER PRIMARY KEY AUTOINCREMENT,
                     LabelName TEXT UNIQUE,
                     ZPL TEXT,
-                    PGL TEXT
+                    PGL TEXT,
+                    DPI INTEGER,
+                    PaperWidthMm REAL,
+                    PaperHeightMm REAL
                 );");
         }
 
