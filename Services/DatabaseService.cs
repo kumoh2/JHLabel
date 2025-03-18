@@ -76,12 +76,17 @@ namespace JHLabel.Services
                 }
                 label.Id = existingLabel.Id;
                 return await connection.ExecuteAsync(
-                    "UPDATE LabelModel SET ZPL = @ZPL, PGL = @PGL WHERE Id = @Id", label);
+                    "UPDATE LabelModel "
+                    +"SET ZPL = @ZPL, PGL = @PGL, DPI = @DPI, PaperWidthMm = @PaperWidthMm, PaperHeightMm = @PaperHeightMm "
+                    +"WHERE Id = @Id",
+                    label);
             }
             else
             {
                 return await connection.ExecuteAsync(
-                    "INSERT INTO LabelModel (LabelName, ZPL, PGL) VALUES (@LabelName, @ZPL, @PGL)", label);
+                    "INSERT INTO LabelModel (LabelName, ZPL, PGL, DPI, PaperWidthMm, PaperHeightMm) "
+                    + "VALUES (@LabelName, @ZPL, @PGL, @DPI, @PaperWidthMm, @PaperHeightMm)",
+                    label);
             }
         }
     }

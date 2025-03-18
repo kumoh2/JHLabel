@@ -73,6 +73,18 @@ namespace JHLabel
                 PGL = string.Empty
             };
 
+            // 새 라벨을 DB에 저장 후 라벨 리스트 UI 갱신
+            int result = await _dbService.SaveLabelAsync(currentLabelDesign);
+            if (result > 0)
+            {
+                LoadLabels();
+            }
+            else
+            {
+                await DisplayAlert("Error", "Failed to create new label", "OK");
+                return;
+            }
+
             // EditorArea 초기화 (예시: 기본 텍스트 추가)
             EditorArea.Children.Clear();
             EditorArea.Children.Add(_selectionIndicator);
@@ -319,6 +331,9 @@ namespace JHLabel
             _selectionIndicator.IsVisible = false;
             if (LabelListView.SelectedItem is LabelModel model)
             {
+                // 선택된 라벨을 현재 편집 중인 라벨로 지정
+                currentLabelDesign = model;
+
                 EditorArea.Children.Clear();
                 EditorArea.Children.Add(_selectionIndicator);
                 // 로드 시 ParseZPLToEditor 호출 (필요에 따라 구현)
