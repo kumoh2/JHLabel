@@ -67,7 +67,8 @@
 	<ItemGroup>
 		<PackageReference Include="ZXing.Net.MAUI" Version="0.4.0" />
 		<PackageReference Include="SkiaSharp" Version="3.118.0-preview.2.3" />
-		<PackageReference Include="sqlite-net-pcl" Version="1.10.196-beta" />
+		<PackageReference Include="Dapper" Version="2.1.66" />
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0-preview.1.25081.1" />
 	</ItemGroup>
 
 </Project>

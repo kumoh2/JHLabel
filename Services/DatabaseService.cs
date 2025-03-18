@@ -1,30 +1,60 @@
-using SQLite;
+using System.Data;
+using Dapper;
+using Microsoft.Data.Sqlite;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using JHLabel.Models;
+using Microsoft.Maui.Controls;
+using System.Linq;
 
 namespace JHLabel.Services
 {
     public class DatabaseService
     {
-        private SQLiteAsyncConnection _connection;
+        private readonly string _connectionString;
         public DatabaseService(string dbPath)
         {
-            _connection = new SQLiteAsyncConnection(dbPath);
-            _connection.CreateTableAsync<LabelModel>().Wait();
+            _connectionString = $"Data Source={dbPath};";
+            InitializeDatabase();
         }
-        public Task<List<LabelModel>> GetLabelsAsync() => _connection.Table<LabelModel>().ToListAsync();
+
+        // 테이블 생성: LabelModel 테이블이 없으면 생성
+        private void InitializeDatabase()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            connection.Execute(@"
+                CREATE TABLE IF NOT EXISTS LabelModel (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    LabelName TEXT UNIQUE,
+                    ZPL TEXT,
+                    PGL TEXT
+                );");
+        }
+
+        private IDbConnection GetConnection()
+        {
+            return new SqliteConnection(_connectionString);
+        }
+
+        public async Task<List<LabelModel>> GetLabelsAsync()
+        {
+            using var connection = GetConnection();
+            var labels = await connection.QueryAsync<LabelModel>("SELECT * FROM LabelModel;");
+            return labels.AsList();
+        }
+
         public async Task<int> SaveLabelAsync(LabelModel label)
         {
-            // 🔹 동일한 LabelName을 가진 레이블이 있는지 확인
-            var existingLabel = await _connection.Table<LabelModel>()
-                                                .Where(l => l.LabelName == label.LabelName)
-                                                .FirstOrDefaultAsync();
+            using var connection = GetConnection();
+            // 동일한 LabelName이 있는지 확인
+            var existingLabel = await connection.QueryFirstOrDefaultAsync<LabelModel>(
+                "SELECT * FROM LabelModel WHERE LabelName = @LabelName", new { label.LabelName });
 
             if (existingLabel != null)
             {
+                // UI 쪽에서 overwrite 여부를 결정 (기존 코드와 동일하게 mainPage를 사용)
                 var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
-
                 if (mainPage != null)
                 {
                     bool overwrite = await mainPage.DisplayAlert(
@@ -41,14 +71,15 @@ namespace JHLabel.Services
                 {
                     return 0; // ❌ 예외 처리: mainPage가 null인 경우
                 }
-
-                // ✅ "Yes" 선택 시 기존 데이터 업데이트
-                existingLabel.ZPL = label.ZPL;
-                return await _connection.UpdateAsync(existingLabel);
+                label.Id = existingLabel.Id;
+                return await connection.ExecuteAsync(
+                    "UPDATE LabelModel SET ZPL = @ZPL, PGL = @PGL WHERE Id = @Id", label);
             }
-
-            // 🔹 중복되지 않는 경우 새로 삽입
-            return await _connection.InsertAsync(label);
+            else
+            {
+                return await connection.ExecuteAsync(
+                    "INSERT INTO LabelModel (LabelName, ZPL, PGL) VALUES (@LabelName, @ZPL, @PGL)", label);
+            }
         }
     }
 }
