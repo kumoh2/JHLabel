@@ -19,7 +19,6 @@ namespace JHLabel
         // 선택된 뷰 및 선택 표시용 오버레이(Border)와 리사이즈 핸들(BoxView)
         private View? _selectedView;
         private Border _selectionIndicator;
-        private BoxView _resizeHandle;
 
         public MainPage()
         {
@@ -41,42 +40,6 @@ namespace JHLabel
                 IsVisible = false
             };
             EditorArea.Children.Add(_selectionIndicator);
-
-            // 리사이즈 핸들 초기화
-            _resizeHandle = new BoxView
-            {
-                Color = Colors.Red,
-                WidthRequest = 20,
-                HeightRequest = 20,
-                IsVisible = false
-            };
-
-            // Pan 제스처를 사용하여 리사이즈 핸들이 드래그되면 선택된 객체의 크기를 조절
-            var panResize = new PanGestureRecognizer();
-            double initialWidth = 0, initialHeight = 0;
-            panResize.PanUpdated += (s, e) =>
-            {
-                if (_selectedView == null)
-                    return;
-                if (e.StatusType == GestureStatus.Started)
-                {
-                    var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
-                    initialWidth = bounds.Width;
-                    initialHeight = bounds.Height;
-                }
-                else if (e.StatusType == GestureStatus.Running)
-                {
-                    var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
-                    double newWidth = initialWidth + e.TotalX;
-                    double newHeight = initialHeight + e.TotalY;
-                    if (newWidth < 20) newWidth = 20;
-                    if (newHeight < 20) newHeight = 20;
-                    AbsoluteLayout.SetLayoutBounds(_selectedView, new Rect(bounds.X, bounds.Y, newWidth, newHeight));
-                    UpdateSelectionIndicator();
-                }
-            };
-            _resizeHandle.GestureRecognizers.Add(panResize);
-            EditorArea.Children.Add(_resizeHandle);
         }
 
         async void LoadLabels()
@@ -192,11 +155,6 @@ namespace JHLabel
             }
             EditorArea.Children.Remove(_selectedView);
             EditorArea.Children.Add(_selectedView);
-            // 선택 표시와 리사이즈 핸들도 최상단에 배치
-            EditorArea.Children.Remove(_selectionIndicator);
-            EditorArea.Children.Add(_selectionIndicator);
-            EditorArea.Children.Remove(_resizeHandle);
-            EditorArea.Children.Add(_resizeHandle);
         }
 
         // 레이어 순서 조정: Send to Back
@@ -209,11 +167,6 @@ namespace JHLabel
             }
             EditorArea.Children.Remove(_selectedView);
             EditorArea.Children.Insert(0, _selectedView);
-            // 선택 표시와 리사이즈 핸들은 최상단에 유지
-            EditorArea.Children.Remove(_selectionIndicator);
-            EditorArea.Children.Add(_selectionIndicator);
-            EditorArea.Children.Remove(_resizeHandle);
-            EditorArea.Children.Add(_resizeHandle);
         }
 
         // 현재 편집된 내용을 ZPL 문자열로 변환 (선택 표시 및 리사이즈 핸들은 제외)
@@ -222,7 +175,7 @@ namespace JHLabel
             string zpl = "^XA";
             foreach (var view in EditorArea.Children)
             {
-                if (view == _selectionIndicator || view == _resizeHandle)
+                if (view == _selectionIndicator)
                     continue;
 
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
@@ -287,7 +240,7 @@ namespace JHLabel
             string pgl = "<PGL_START>\n";
             foreach (var view in EditorArea.Children)
             {
-                if (view == _selectionIndicator || view == _resizeHandle)
+                if (view == _selectionIndicator)
                     continue;
 
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
@@ -386,16 +339,9 @@ namespace JHLabel
         }
 
         // 선택 시 호출: 선택된 뷰 저장 및 선택 표시 업데이트
-        private async void SelectView(View view)
+        private void SelectView(View view)
         {
             _selectedView = view;
-             // 선택 시 한 번만 최상단으로 올림
-            EditorArea.Children.Remove(_resizeHandle);
-            EditorArea.Children.Add(_resizeHandle);
-            
-            // 레이아웃 갱신
-            EditorArea.InvalidateMeasure();
-            await Task.Delay(100); // 충분한 딜레이(필요시 값을 조절)
             UpdateSelectionIndicator();
         }
 
@@ -405,7 +351,6 @@ namespace JHLabel
             if (_selectedView == null)
             {
                 _selectionIndicator.IsVisible = false;
-                _resizeHandle.IsVisible = false;
                 return;
             }
             var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
@@ -419,10 +364,6 @@ namespace JHLabel
             double margin = 2;
             AbsoluteLayout.SetLayoutBounds(_selectionIndicator, new Rect(bounds.X - margin, bounds.Y - margin, bounds.Width + margin * 2, bounds.Height + margin * 2));
             _selectionIndicator.IsVisible = true;
-
-            double handleSize = 20;
-            AbsoluteLayout.SetLayoutBounds(_resizeHandle, new Rect(bounds.X + bounds.Width - handleSize, bounds.Y + bounds.Height - handleSize, handleSize, handleSize));
-            _resizeHandle.IsVisible = true;
         }
 
         // 라벨 전환 시 선택 해제 및 편집 영역 재구성
@@ -430,13 +371,11 @@ namespace JHLabel
         {
             _selectedView = null;
             _selectionIndicator.IsVisible = false;
-            _resizeHandle.IsVisible = false;
 
             if (LabelListView.SelectedItem is LabelModel model)
             {
                 EditorArea.Children.Clear();
                 EditorArea.Children.Add(_selectionIndicator);
-                EditorArea.Children.Add(_resizeHandle);
                 ParseZPLToEditor(model.ZPL);
             }
         }
