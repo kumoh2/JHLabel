@@ -64,7 +64,7 @@ namespace JHLabel.Utils
             view.GestureRecognizers.Add(tapGesture);
         }
 
-        private Rect ClampRect(Rect rect)
+        public Rect ClampRect(Rect rect)
         {
             double areaWidth = _editorArea.Width;
             double areaHeight = _editorArea.Height;

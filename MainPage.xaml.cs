@@ -74,24 +74,6 @@ namespace JHLabel
             double pixelsPerMm = screenDpi / 25.4;
             return pixels / pixelsPerMm;
         }
-
-        // 라벨 영역 내에서 객체 위치가 벗어나지 않도록 clamp 처리
-        private Rect ClampRect(Rect rect)
-        {
-            double areaWidth = EditorArea.Width;
-            double areaHeight = EditorArea.Height;
-            double x = rect.X;
-            double y = rect.Y;
-            double width = rect.Width;
-            double height = rect.Height;
-            if (x < 0) x = 0;
-            if (y < 0) y = 0;
-            if (x + width > areaWidth)
-                x = Math.Max(0, areaWidth - width);
-            if (y + height > areaHeight)
-                y = Math.Max(0, areaHeight - height);
-            return new Rect(x, y, width, height);
-        }
    
         // 새 라벨 생성: 라벨 크기를 EditorArea에 적용 (중앙 배치)
         private async void OnNewLabelClicked(object sender, EventArgs e)
@@ -215,7 +197,7 @@ namespace JHLabel
 
             double xScreen = MmToScreenPixels(defaultX);
             double yScreen = MmToScreenPixels(defaultY);
-            var rect = ClampRect(new Rect(xScreen, yScreen, widthScreen, heightScreen));
+            var rect = _interactionManager.ClampRect(new Rect(xScreen, yScreen, widthScreen, heightScreen));
 
             var lbl = new Label { Text = text, BackgroundColor = Colors.White, TextColor = Colors.Black };
 
@@ -241,7 +223,7 @@ namespace JHLabel
 
             double xScreen = MmToScreenPixels(defaultX);
             double yScreen = MmToScreenPixels(defaultY);
-            var rect = ClampRect(new Rect(xScreen, yScreen, widthScreen, heightScreen));
+            var rect = _interactionManager.ClampRect(new Rect(xScreen, yScreen, widthScreen, heightScreen));
 
             var barcodeImageSource = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.CODE_128, (int)widthScreen, (int)heightScreen);
             var img = new Image
@@ -286,7 +268,7 @@ namespace JHLabel
 
             double xScreen = MmToScreenPixels(defaultX);
             double yScreen = MmToScreenPixels(defaultY);
-            var rect = ClampRect(new Rect(xScreen, yScreen, previewWidth, previewHeight));
+            var rect = _interactionManager.ClampRect(new Rect(xScreen, yScreen, previewWidth, previewHeight));
 
             var barcodeImageSource = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.QR_CODE, (int)previewWidth, (int)previewHeight);
             var img = new Image
