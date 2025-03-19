@@ -52,9 +52,15 @@ namespace JHLabel
             string labelName = await DisplayPromptAsync("New Label", "Enter label name:");
             if (string.IsNullOrEmpty(labelName))
                 return;
-            string dpiStr = await DisplayPromptAsync("New Label", "Enter printer DPI (e.g., 203,300,600):", initialValue: "203");
-            if (!int.TryParse(dpiStr, out int dpi))
-                dpi = 203;
+            int dpi;
+            while (true)
+            {
+                string dpiStr = await DisplayPromptAsync("New Label", "Enter printer DPI (203, 300, or 600):", initialValue: "203");
+                if (int.TryParse(dpiStr, out dpi) && (dpi == 203 || dpi == 300 || dpi == 600))
+                    break;
+                
+                await DisplayAlert("Invalid Input", "Please enter a valid DPI: 203, 300, or 600.", "OK");
+            }
             string widthStr = await DisplayPromptAsync("New Label", "Enter label width in mm:", initialValue: "45");
             if (!double.TryParse(widthStr, out double widthMm))
                 widthMm = 45;
