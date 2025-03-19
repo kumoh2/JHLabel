@@ -2,135 +2,111 @@ using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.Devices;
 using Microsoft.Maui.Layouts;
-using ZXing;
-using ZXing.QrCode;
 
 namespace JHLabel.Utils
 {
     public class ZplParser
     {
-        // 참조용 상수 (필요에 따라 수정)
-        private const double RefTextWidthMm = 20;
-        private const double RefTextHeightMm = 10;
-        private const double RefBarcode1DWidthMm = 30;
-        private const double RefBarcode1DHeightMm = 10;
-        private const double RefBarcode2DWidthMm = 18; // QR는 정사각형
-
         private readonly double _editorWidth;
         private readonly double _editorHeight;
         private readonly Action<View>? _addGesture;
+        private readonly Func<int, double> _dotsToScreenPx; // int->double
 
-        public ZplParser(double editorWidth, double editorHeight, Action<View>? addGesture = null)
+        public ZplParser(double editorWidth, double editorHeight,
+                         Action<View>? addGesture,
+                         Func<int,double> dotsToScreenPx)
         {
             _editorWidth = editorWidth;
             _editorHeight = editorHeight;
             _addGesture = addGesture;
+            _dotsToScreenPx = dotsToScreenPx;
         }
 
-        // mm → 화면 픽셀 변환 (미리보기용)
-        private double MmToScreenPixels(double mm)
-        {
-            var displayInfo = DeviceDisplay.MainDisplayInfo;
-            double screenDpi = displayInfo.Density * 160; // 1 DIU = 160 DPI 기준
-            double pixelsPerMm = screenDpi / 25.4;
-            return mm * pixelsPerMm;
-        }
-
-        // 화면 픽셀 → mm 변환
-        private double ScreenPixelsToMm(double pixels)
-        {
-            var displayInfo = DeviceDisplay.MainDisplayInfo;
-            double screenDpi = displayInfo.Density * 160;
-            double pixelsPerMm = screenDpi / 25.4;
-            return pixels / pixelsPerMm;
-        }
-
-        // 에디터 영역 내에서 객체 위치가 벗어나지 않도록 clamp 처리
-        private Rect ClampRect(Rect rect)
-        {
-            double x = rect.X;
-            double y = rect.Y;
-            double width = rect.Width;
-            double height = rect.Height;
-            if (x < 0) x = 0;
-            if (y < 0) y = 0;
-            if (x + width > _editorWidth)
-                x = Math.Max(0, _editorWidth - width);
-            if (y + height > _editorHeight)
-                y = Math.Max(0, _editorHeight - height);
-            return new Rect(x, y, width, height);
-        }
-
-        /// <summary>
-        /// ZPL 문자열을 파싱하여 EditorArea에 추가할 View 목록을 반환합니다.
-        /// </summary>
-        /// <param name="zpl">ZPL 문자열</param>
-        /// <param name="printerDpi">프린터 DPI</param>
-        /// <returns>파싱된 View 목록</returns>
-        public List<View> Parse(string zpl, int printerDpi)
+        public List<View> Parse(string zpl)
         {
             var views = new List<View>();
 
-            // 텍스트 파싱
-            var regexText = new Regex(@"\^FO(\d+),(\d+)\^A0N,30,30\^FD([^\\^]+)\^FS");
+            // 텍스트: ^FOx,y ^A0N,h,w ^FD...^FS
+            var regexText = new Regex(@"\^FO(\d+),(\d+)\^A0N,(\d+),(\d+)\^FD([^\\^]+)\^FS");
             foreach (Match match in regexText.Matches(zpl))
             {
-                if (match.Groups.Count == 4)
+                if (match.Groups.Count == 6)
                 {
                     int xDots = int.Parse(match.Groups[1].Value);
                     int yDots = int.Parse(match.Groups[2].Value);
-                    string content = match.Groups[3].Value;
-                    double xMm = xDots * 25.4 / printerDpi;
-                    double yMm = yDots * 25.4 / printerDpi;
-                    if (xMm < 0) xMm = 0;
-                    if (yMm < 0) yMm = 0;
-                    double xScreen = MmToScreenPixels(xMm);
-                    double yScreen = MmToScreenPixels(yMm);
-                    double textWidth = MmToScreenPixels(RefTextWidthMm);
-                    double textHeight = MmToScreenPixels(RefTextHeightMm);
-                    var rect = ClampRect(new Rect(xScreen, yScreen, textWidth, textHeight));
+                    int fontH = int.Parse(match.Groups[3].Value);
+                    int fontW = int.Parse(match.Groups[4].Value);
+                    string text = match.Groups[5].Value;
 
-                    var lbl = new Label { Text = content, BackgroundColor = Colors.White, TextColor = Colors.Black };
+                    double xPx = _dotsToScreenPx(xDots);
+                    double yPx = _dotsToScreenPx(yDots);
+
+                    // 단순히 fontH, fontW를 그대로 bounding box로 사용
+                    double wPx = _dotsToScreenPx(fontW);
+                    double hPx = _dotsToScreenPx(fontH);
+
+                    var rect = ClampRect(new Rect(xPx, yPx, wPx, hPx));
+
+                    var lbl = new Label
+                    {
+                        Text = text,
+                        BackgroundColor = Colors.White,
+                        TextColor = Colors.Black
+                    };
                     AbsoluteLayout.SetLayoutBounds(lbl, rect);
                     AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-                    lbl.ClassId = "Text:" + content;
+                    lbl.ClassId = $"Text:{text}";
                     _addGesture?.Invoke(lbl);
                     views.Add(lbl);
                 }
             }
 
-            // 1D 바코드 파싱 (Code128)
-            var regexBarcode1D = new Regex(@"\^FO(\d+),(\d+)\^BCN,(\d+),N,N,N\^FD([^\\^]+)\^FS");
+            // 1D 바코드: ^FOx,y ... ^BCN,h ... ^FDdata^FS
+            var regexBarcode1D = new Regex(@"\^FO(\d+),(\d+).*?\^BCN,(\d+),.*?\^FD([^\\^]+)\^FS",
+                RegexOptions.Singleline);
             foreach (Match match in regexBarcode1D.Matches(zpl))
             {
                 if (match.Groups.Count == 5)
                 {
                     int xDots = int.Parse(match.Groups[1].Value);
                     int yDots = int.Parse(match.Groups[2].Value);
+                    int heightDots = int.Parse(match.Groups[3].Value);
                     string data = match.Groups[4].Value;
-                    double xMm = xDots * 25.4 / printerDpi;
-                    double yMm = yDots * 25.4 / printerDpi;
-                    if (xMm < 0) xMm = 0;
-                    if (yMm < 0) yMm = 0;
-                    double xScreen = MmToScreenPixels(xMm);
-                    double yScreen = MmToScreenPixels(yMm);
-                    double barcodeWidth = MmToScreenPixels(RefBarcode1DWidthMm);
-                    double barcodeHeight = MmToScreenPixels(RefBarcode1DHeightMm);
-                    var rect = ClampRect(new Rect(xScreen, yScreen, barcodeWidth, barcodeHeight));
 
-                    var imageSource = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.CODE_128, (int)barcodeWidth, (int)barcodeHeight);
-                    var img = new Image { Source = imageSource, WidthRequest = barcodeWidth, HeightRequest = barcodeHeight };
+                    double xPx = _dotsToScreenPx(xDots);
+                    double yPx = _dotsToScreenPx(yDots);
+                    double hPx = _dotsToScreenPx(heightDots);
+
+                    // 폭: Code128 모듈 수 계산 + ^BY 파싱까지 해야 정확하지만, 간단 예시로 임의 추정
+                    int totalModules = BarcodeHelper.GetCode128ModuleCount(data);
+                    if (totalModules <= 0) totalModules = 1;
+                    int quietZone = 10;
+                    int assumedModuleWidth = 2; // 임의
+                    int totalWidthDots = (totalModules + quietZone) * assumedModuleWidth;
+                    double wPx = _dotsToScreenPx(totalWidthDots);
+
+                    var rect = ClampRect(new Rect(xPx, yPx, wPx, hPx));
+
+                    var source = BarcodeHelper.GenerateExactBarcodeImage(
+                        data, ZXing.BarcodeFormat.CODE_128,
+                        (int)Math.Round(wPx), (int)Math.Round(hPx));
+
+                    var img = new Image
+                    {
+                        Source = source,
+                        WidthRequest = wPx,
+                        HeightRequest = hPx
+                    };
                     AbsoluteLayout.SetLayoutBounds(img, rect);
                     AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-                    img.ClassId = "Barcode1D:" + data;
+                    img.ClassId = $"Barcode1D:{data}";
                     _addGesture?.Invoke(img);
                     views.Add(img);
                 }
             }
 
-            // 2D 바코드 파싱 (QR 코드)
+            // 2D 바코드 (QR): ^FOx,y ^BQN,2,m ^FDMM,A(data)^FS
             var regexBarcode2D = new Regex(@"\^FO(\d+),(\d+)\^BQN,2,(\d+)\^FDMM,A([^\\^]+)\^FS");
             foreach (Match match in regexBarcode2D.Matches(zpl))
             {
@@ -138,28 +114,49 @@ namespace JHLabel.Utils
                 {
                     int xDots = int.Parse(match.Groups[1].Value);
                     int yDots = int.Parse(match.Groups[2].Value);
+                    int mag = int.Parse(match.Groups[3].Value);
                     string data = match.Groups[4].Value;
-                    double xMm = xDots * 25.4 / printerDpi;
-                    double yMm = yDots * 25.4 / printerDpi;
-                    if (xMm < 0) xMm = 0;
-                    if (yMm < 0) yMm = 0;
-                    double xScreen = MmToScreenPixels(xMm);
-                    double yScreen = MmToScreenPixels(yMm);
-                    double previewWidth = MmToScreenPixels(RefBarcode2DWidthMm);
-                    double previewHeight = previewWidth; // 정사각형
-                    var rect = ClampRect(new Rect(xScreen, yScreen, previewWidth, previewHeight));
 
-                    var imageSource = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.QR_CODE, (int)previewWidth, (int)previewHeight);
-                    var img = new Image { Source = imageSource, WidthRequest = previewWidth, HeightRequest = previewHeight };
+                    double xPx = _dotsToScreenPx(xDots);
+                    double yPx = _dotsToScreenPx(yDots);
+
+                    int moduleCount = BarcodeHelper.GetQrModuleCount(data);
+                    if (moduleCount <= 0) moduleCount = 1;
+                    int totalDots = moduleCount * mag;
+
+                    double sizePx = _dotsToScreenPx(totalDots);
+
+                    var rect = ClampRect(new Rect(xPx, yPx, sizePx, sizePx));
+
+                    var source = BarcodeHelper.GenerateExactBarcodeImage(
+                        data, ZXing.BarcodeFormat.QR_CODE,
+                        (int)Math.Round(sizePx), (int)Math.Round(sizePx));
+
+                    var img = new Image
+                    {
+                        Source = source,
+                        WidthRequest = sizePx,
+                        HeightRequest = sizePx
+                    };
                     AbsoluteLayout.SetLayoutBounds(img, rect);
                     AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-                    img.ClassId = "Barcode2D:" + data;
+                    img.ClassId = $"Barcode2D:{data}";
                     _addGesture?.Invoke(img);
                     views.Add(img);
                 }
             }
 
             return views;
+        }
+
+        private Rect ClampRect(Rect rect)
+        {
+            double x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height;
+            if (x < 0) x = 0;
+            if (y < 0) y = 0;
+            if (x + w > _editorWidth) x = Math.Max(0, _editorWidth - w);
+            if (y + h > _editorHeight) y = Math.Max(0, _editorHeight - h);
+            return new Rect(x, y, w, h);
         }
     }
 }

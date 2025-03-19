@@ -1,11 +1,15 @@
-﻿using Microsoft.Maui.Devices;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks; // ← Task/async 사용할 때 필요
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Devices;
 using Microsoft.Maui.Layouts;
-using System.Text.RegularExpressions;
 using JHLabel.Models;
 using JHLabel.Services;
 using JHLabel.Utils;
 using ZXing;
-using ZXing.QrCode;
 
 namespace JHLabel
 {
@@ -14,29 +18,26 @@ namespace JHLabel
         DatabaseService _dbService;
         public List<LabelModel> Labels { get; set; } = new List<LabelModel>();
 
-        // 현재 편집 중인 라벨 디자인 데이터 (디자인 데이터는 mm 단위, DPI 등)
         private LabelModel? currentLabelDesign;
-
-        // EditorInteractionManager 인스턴스
         private EditorInteractionManager _interactionManager;
 
         public MainPage()
         {
             InitializeComponent();
 
-            // 부모 페이지는 회색, 편집 영역은 흰색 및 중앙 정렬 처리
             this.BackgroundColor = Colors.Gray;
             EditorArea.BackgroundColor = Colors.White;
             EditorArea.HorizontalOptions = LayoutOptions.Center;
             EditorArea.VerticalOptions = LayoutOptions.Center;
 
-            // DB 초기화 및 로드
+            // DB
             string dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
-            System.Diagnostics.Debug.WriteLine($"Database Path: {dbPath}");
             _dbService = new DatabaseService(dbPath);
-            LoadLabels();
 
-            // 선택 표시용 Border 초기화
+            // 비동기 로드
+            _ = LoadLabels();
+
+            // 선택 표시용 Border
             var selectionIndicator = new Border
             {
                 Stroke = Colors.Blue,
@@ -47,82 +48,88 @@ namespace JHLabel
             };
             EditorArea.Children.Add(selectionIndicator);
 
-            // EditorInteractionManager 생성
             _interactionManager = new EditorInteractionManager(EditorArea, selectionIndicator);
         }
 
-        async void LoadLabels()
+        private async Task LoadLabels()
         {
             Labels = await _dbService.GetLabelsAsync();
             LabelListView.ItemsSource = Labels;
         }
 
-        // mm → 화면 픽셀 변환 (미리보기용)
-        private double MmToScreenPixels(double mm)
+        // mm→화면픽셀
+        private double MmToScreenPx(double mm)
         {
-            var displayInfo = DeviceDisplay.MainDisplayInfo;
-            double screenDpi = displayInfo.Density * 160; // 1 DIU = 160 DPI 기준
-            double pixelsPerMm = screenDpi / 25.4;
-            return mm * pixelsPerMm;
+            double screenDpi = DeviceDisplay.MainDisplayInfo.Density * 160.0;
+            double pxPerMm = screenDpi / 25.4;
+            return mm * pxPerMm;
         }
 
-        // 화면 픽셀 → mm 변환
-        private double ScreenPixelsToMm(double pixels)
+        // 화면픽셀→mm
+        private double ScreenPxToMm(double px)
         {
-            var displayInfo = DeviceDisplay.MainDisplayInfo;
-            double screenDpi = displayInfo.Density * 160;
-            double pixelsPerMm = screenDpi / 25.4;
-            return pixels / pixelsPerMm;
+            double screenDpi = DeviceDisplay.MainDisplayInfo.Density * 160.0;
+            double pxPerMm = screenDpi / 25.4;
+            return px / pxPerMm;
         }
-   
-        // 새 라벨 생성: 라벨 크기를 EditorArea에 적용 (중앙 배치)
+
+        // 도트→화면픽셀 (int→double)
+        private double DotsToScreenPx(int dots)
+        {
+            if (currentLabelDesign == null) return dots;
+            // dots -> mm -> px
+            double mm = dots * 25.4 / currentLabelDesign.DPI;
+            return MmToScreenPx(mm);
+        }
+
+        // 화면픽셀→도트
+        private int ScreenPxToDots(double px)
+        {
+            if (currentLabelDesign == null) return (int)px;
+            double mm = ScreenPxToMm(px);
+            int dots = (int)Math.Round(mm * currentLabelDesign.DPI / 25.4);
+            return dots;
+        }
+
         private async void OnNewLabelClicked(object sender, EventArgs e)
         {
             string labelName = await DisplayPromptAsync("New Label", "Enter label name:");
-            if (string.IsNullOrEmpty(labelName))
-                return;
+            if (string.IsNullOrEmpty(labelName)) return;
 
-            int dpi;
+            int dpi = 203;
             while (true)
             {
-                string dpiStr = await DisplayPromptAsync("New Label", "Enter printer DPI (203, 300, or 600):", initialValue: "203");
+                string dpiStr = await DisplayPromptAsync("New Label", "DPI (203/300/600):", initialValue: "203");
                 if (int.TryParse(dpiStr, out dpi) && (dpi == 203 || dpi == 300 || dpi == 600))
                     break;
-                await DisplayAlert("Invalid Input", "Please enter a valid DPI: 203, 300, or 600.", "OK");
+                await DisplayAlert("Invalid", "올바른 DPI(203/300/600)을 입력하세요.", "OK");
             }
-            string widthStr = await DisplayPromptAsync("New Label", "Enter label width in mm:", initialValue: "45");
-            if (!double.TryParse(widthStr, out double widthMm))
-                widthMm = 45;
-            string heightStr = await DisplayPromptAsync("New Label", "Enter label height in mm:", initialValue: "70");
-            if (!double.TryParse(heightStr, out double heightMm))
-                heightMm = 70;
+
+            string wStr = await DisplayPromptAsync("New Label", "width(mm):", initialValue: "50");
+            double wMm = double.TryParse(wStr, out double wVal) ? wVal : 50;
+            string hStr = await DisplayPromptAsync("New Label", "height(mm):", initialValue: "30");
+            double hMm = double.TryParse(hStr, out double hVal) ? hVal : 30;
 
             currentLabelDesign = new LabelModel
             {
                 LabelName = labelName,
                 DPI = dpi,
-                PaperWidthMm = widthMm,
-                PaperHeightMm = heightMm,
-                ZPL = string.Empty,
-                PGL = string.Empty
+                PaperWidthMm = wMm,
+                PaperHeightMm = hMm
             };
 
             int result = await _dbService.SaveLabelAsync(currentLabelDesign);
             if (result > 0)
             {
-                LoadLabels();
-            }
-            else
-            {
-                await DisplayAlert("Error", "Failed to create new label", "OK");
-                return;
+                await LoadLabels();
+                LabelListView.SelectedItem = Labels.FirstOrDefault(x => x.Id == currentLabelDesign.Id);
             }
 
             EditorArea.Children.Clear();
-            // 선택 표시용 Border 재추가
             EditorArea.Children.Add(_interactionManager.SelectionIndicator);
-            EditorArea.WidthRequest = MmToScreenPixels(currentLabelDesign.PaperWidthMm);
-            EditorArea.HeightRequest = MmToScreenPixels(currentLabelDesign.PaperHeightMm);
+
+            EditorArea.WidthRequest = MmToScreenPx(currentLabelDesign.PaperWidthMm);
+            EditorArea.HeightRequest = MmToScreenPx(currentLabelDesign.PaperHeightMm);
         }
 
         private async void OnDeleteLabelClicked(object sender, EventArgs e)
@@ -133,197 +140,197 @@ namespace JHLabel
                 return;
             }
 
-            string confirmationName = await DisplayPromptAsync("Confirm Delete", $"To delete '{currentLabelDesign.LabelName}', please type the label name:");
-            if (confirmationName != currentLabelDesign.LabelName)
+            string confirm = await DisplayPromptAsync("Confirm Delete", 
+                $"Type label name '{currentLabelDesign.LabelName}' to delete:");
+            if (confirm != currentLabelDesign.LabelName)
             {
-                await DisplayAlert("Error", "Label name does not match. Deletion cancelled.", "OK");
+                await DisplayAlert("Cancelled", "Label name mismatch.", "OK");
                 return;
             }
 
             int result = await _dbService.DeleteLabelAsync(currentLabelDesign);
             if (result > 0)
             {
-                await DisplayAlert("Deleted", "Label deleted successfully", "OK");
+                await DisplayAlert("Deleted", "Label deleted.", "OK");
                 currentLabelDesign = null;
                 EditorArea.Children.Clear();
                 EditorArea.Children.Add(_interactionManager.SelectionIndicator);
-                LoadLabels();
-            }
-            else
-            {
-                await DisplayAlert("Error", "Failed to delete label.", "OK");
+                await LoadLabels();
             }
         }
 
-        // Save Label: 현재 편집 중인 라벨 디자인 데이터를 ZPL/PGL 문자열로 변환 후 DB에 저장
         private async void OnSaveLabelClicked(object sender, EventArgs e)
         {
             if (currentLabelDesign == null)
             {
-                await DisplayAlert("Error", "No label design available. Create a new label first.", "OK");
+                await DisplayAlert("Error", "No label design available.", "OK");
                 return;
             }
 
-            var exporter = new LabelExporter(EditorArea.Children.OfType<View>(), _interactionManager.SelectionIndicator, ScreenPixelsToMm);
-            string zpl = exporter.GenerateZPL(currentLabelDesign.DPI);
-            string pgl = exporter.GeneratePGL(currentLabelDesign.DPI);
+            // LabelExporter에 IEnum<View>를 넘겨주어야 함
+            var allViews = EditorArea.Children.OfType<View>();
+            var exporter = new LabelExporter(allViews, _interactionManager.SelectionIndicator,
+                ScreenPxToMm, currentLabelDesign.DPI);
+
+            string zpl = exporter.GenerateZPL();
+            string pgl = exporter.GeneratePGL();
+
             currentLabelDesign.ZPL = zpl;
             currentLabelDesign.PGL = pgl;
 
             int result = await _dbService.SaveLabelAsync(currentLabelDesign);
             if (result > 0)
-            {
-                await DisplayAlert("Saved", "Label saved successfully", "OK");
-                LoadLabels();
-            }
+                await DisplayAlert("Saved", "Label saved.", "OK");
             else
-            {
-                await DisplayAlert("Not Saved", "Label not saved", "OK");
-            }
+                await DisplayAlert("Error", "Save failed.", "OK");
+
+            // 갱신
+            await LoadLabels();
         }
 
-        // 텍스트 추가 – 기본 위치 5,5에 동적 크기 (mm 기준)
         private async void OnAddTextClicked(object sender, EventArgs e)
         {
+            if (currentLabelDesign == null) return;
+
             string text = await DisplayPromptAsync("Add Text", "Enter text:");
-            if (string.IsNullOrEmpty(text))
-                return;
+            if (string.IsNullOrEmpty(text)) return;
 
-            double defaultX = 5, defaultY = 5;
-            const double RefTextWidthMm = 20;
-            const double RefTextHeightMm = 10;
-            double widthScreen = MmToScreenPixels(RefTextWidthMm);
-            double heightScreen = MmToScreenPixels(RefTextHeightMm);
+            // 예시: 높이 40도트, 폭 20도트(2:1 비율)
+            int fontH = 40;
+            int fontW = 20;
 
-            double xScreen = MmToScreenPixels(defaultX);
-            double yScreen = MmToScreenPixels(defaultY);
-            var rect = _interactionManager.ClampRect(new Rect(xScreen, yScreen, widthScreen, heightScreen));
+            double wPx = DotsToScreenPx(fontW);
+            double hPx = DotsToScreenPx(fontH);
 
-            var lbl = new Label { Text = text, BackgroundColor = Colors.White, TextColor = Colors.Black };
+            // 기본 위치 10,10 도트
+            double xPx = DotsToScreenPx(10);
+            double yPx = DotsToScreenPx(10);
 
+            var rect = _interactionManager.ClampRect(new Rect(xPx, yPx, wPx, hPx));
+
+            var lbl = new Label
+            {
+                Text = text,
+                BackgroundColor = Colors.White,
+                TextColor = Colors.Black
+            };
             AbsoluteLayout.SetLayoutBounds(lbl, rect);
             AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-            lbl.ClassId = "Text:" + text;
+            lbl.ClassId = $"Text:{text}";
             _interactionManager.AddDragAndGesture(lbl);
             EditorArea.Children.Add(lbl);
         }
 
-        // 1D 바코드 추가 (Code128) – 기본 위치 5,20에 동적 크기 (mm 기준)
         private async void OnAddBarcode1DClicked(object sender, EventArgs e)
         {
+            if (currentLabelDesign == null) return;
+
             string data = await DisplayPromptAsync("Add 1D Barcode", "Enter barcode data:");
-            if (string.IsNullOrEmpty(data))
-                return;
+            if (string.IsNullOrEmpty(data)) return;
 
-            double defaultX = 5, defaultY = 20;
-            const double RefBarcode1DWidthMm = 30;
-            const double RefBarcode1DHeightMm = 10;
-            double widthScreen = MmToScreenPixels(RefBarcode1DWidthMm);
-            double heightScreen = MmToScreenPixels(RefBarcode1DHeightMm);
+            // Code128 모듈 계산
+            int totalModules = BarcodeHelper.GetCode128ModuleCount(data);
+            if (totalModules < 1) totalModules = 1;
 
-            double xScreen = MmToScreenPixels(defaultX);
-            double yScreen = MmToScreenPixels(defaultY);
-            var rect = _interactionManager.ClampRect(new Rect(xScreen, yScreen, widthScreen, heightScreen));
+            int quietZone = 10;
+            int mw = 2; // 모듈폭 2도트
+            int heightDots = 50; // 바코드 높이
+            int totalWidthDots = (totalModules + quietZone) * mw;
 
-            var barcodeImageSource = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.CODE_128, (int)widthScreen, (int)heightScreen);
+            double wPx = DotsToScreenPx(totalWidthDots);
+            double hPx = DotsToScreenPx(heightDots);
+
+            double xPx = DotsToScreenPx(10);
+            double yPx = DotsToScreenPx(60);
+
+            var rect = _interactionManager.ClampRect(new Rect(xPx, yPx, wPx, hPx));
+
+            var source = BarcodeHelper.GenerateExactBarcodeImage(data, BarcodeFormat.CODE_128,
+                (int)Math.Round(wPx), (int)Math.Round(hPx));
+
             var img = new Image
             {
-                Source = barcodeImageSource,
-                WidthRequest = widthScreen,
-                HeightRequest = heightScreen
+                Source = source,
+                WidthRequest = wPx,
+                HeightRequest = hPx
             };
-
             AbsoluteLayout.SetLayoutBounds(img, rect);
             AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
+            img.ClassId = $"Barcode1D:{data}";
             _interactionManager.AddDragAndGesture(img);
-            img.ClassId = "Barcode1D:" + data;
             EditorArea.Children.Add(img);
         }
 
-        // 2D 바코드 추가 (QR 코드) – 기본 위치 5,35에 동적 크기 (라벨 크기와 DPI 반영)
         private async void OnAddBarcode2DClicked(object sender, EventArgs e)
         {
-            string data = await DisplayPromptAsync("Add 2D Barcode", "Enter QR code data:");
-            if (string.IsNullOrEmpty(data))
-                return;
+            if (currentLabelDesign == null) return;
 
-            double defaultX = 5, defaultY = 35;
-            const double RefBarcode2DWidthMm = 18; // QR는 정사각형
-            double default2DSizeMm = RefBarcode2DWidthMm;
+            string data = await DisplayPromptAsync("Add 2D Barcode", "Enter QR data:");
+            if (string.IsNullOrEmpty(data)) return;
 
-            // QR 코드의 모듈 수 (quiet zone 포함)
-            int moduleCount = GetQrModuleCount(data);
+            int moduleCount = BarcodeHelper.GetQrModuleCount(data);
+            if (moduleCount < 1) moduleCount = 1;
 
-            // 원하는 배율 계산: moduleCount * magnification * 25.4 / DPI = default2DSizeMm
-            int computedMagnification = (int)Math.Round((default2DSizeMm * (currentLabelDesign?.DPI ?? 300) / 25.4) / moduleCount);
-            if (computedMagnification < 1)
-                computedMagnification = 1;
+            int mag = 4; // 확대배수
+            int totalDots = moduleCount * mag;
 
-            // 실제 인쇄 시 QR 코드 크기 (mm 단위)
-            double actualSizeMm = moduleCount * computedMagnification * 25.4 / (currentLabelDesign?.DPI ?? 300);
+            double sizePx = DotsToScreenPx(totalDots);
 
-            // 화면에 표시할 크기는 mm → 픽셀 변환
-            double previewWidth = MmToScreenPixels(actualSizeMm);
-            double previewHeight = previewWidth; // 정사각형
+            double xPx = DotsToScreenPx(10);
+            double yPx = DotsToScreenPx(120);
 
-            double xScreen = MmToScreenPixels(defaultX);
-            double yScreen = MmToScreenPixels(defaultY);
-            var rect = _interactionManager.ClampRect(new Rect(xScreen, yScreen, previewWidth, previewHeight));
+            var rect = _interactionManager.ClampRect(new Rect(xPx, yPx, sizePx, sizePx));
 
-            var barcodeImageSource = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.QR_CODE, (int)previewWidth, (int)previewHeight);
+            var source = BarcodeHelper.GenerateExactBarcodeImage(data, BarcodeFormat.QR_CODE,
+                (int)Math.Round(sizePx), (int)Math.Round(sizePx));
+
             var img = new Image
             {
-                Source = barcodeImageSource,
-                WidthRequest = previewWidth,
-                HeightRequest = previewHeight
+                Source = source,
+                WidthRequest = sizePx,
+                HeightRequest = sizePx
             };
-
             AbsoluteLayout.SetLayoutBounds(img, rect);
             AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
+            img.ClassId = $"Barcode2D:{data}";
             _interactionManager.AddDragAndGesture(img);
-            // ClassId에 배율 정보 추가 (나중에 ZPL 생성 시 참조)
-            img.ClassId = "Barcode2D:" + data + ";" + computedMagnification;
             EditorArea.Children.Add(img);
         }
 
-        // Bring to Front 버튼 클릭 시
         private void OnBringToFrontClicked(object sender, EventArgs e)
         {
             _interactionManager.BringToFront();
         }
 
-        // Send to Back 버튼 클릭 시
         private void OnSendToBackClicked(object sender, EventArgs e)
         {
             _interactionManager.SendToBack();
         }
 
-        // ZXing을 이용하여 QR 코드의 모듈 수(버전 기준)를 반환하는 헬퍼 함수
-        private int GetQrModuleCount(string data)
-        {
-            var writer = new QRCodeWriter();
-            var matrix = writer.encode(data, BarcodeFormat.QR_CODE, 0, 0);
-            return matrix.Width;
-        }
-
-        // 라벨 전환: 선택 해제 및 EditorArea 재구성, ZPL 파싱
         private void LabelListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             _interactionManager.ClearSelection();
+
             if (LabelListView.SelectedItem is LabelModel model)
             {
                 currentLabelDesign = model;
                 EditorArea.Children.Clear();
                 EditorArea.Children.Add(_interactionManager.SelectionIndicator);
-                EditorArea.WidthRequest = MmToScreenPixels(currentLabelDesign.PaperWidthMm);
-                EditorArea.HeightRequest = MmToScreenPixels(currentLabelDesign.PaperHeightMm);
-                // ZplParser 생성 (드래그/제스처 추가를 위해 _interactionManager.AddDragAndGesture 델리게이트 전달)
-                var parser = new ZplParser(EditorArea.Width, EditorArea.Height, _interactionManager.AddDragAndGesture);
-                var views = parser.Parse(model.ZPL, model.DPI);
-                foreach (var view in views)
-                {
-                    EditorArea.Children.Add(view);
-                }
+
+                EditorArea.WidthRequest = MmToScreenPx(currentLabelDesign.PaperWidthMm);
+                EditorArea.HeightRequest = MmToScreenPx(currentLabelDesign.PaperHeightMm);
+
+                // ZPL 파서 생성자에서 Func<int,double>로 dots→screenPx 받음
+                var parser = new ZplParser(
+                    EditorArea.Width,
+                    EditorArea.Height,
+                    _interactionManager.AddDragAndGesture,
+                    DotsToScreenPx
+                );
+
+                var views = parser.Parse(model.ZPL ?? "");
+                foreach (var v in views)
+                    EditorArea.Children.Add(v);
             }
         }
     }

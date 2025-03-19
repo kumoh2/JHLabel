@@ -9,145 +9,124 @@ namespace JHLabel.Utils
 {
     public class LabelExporter
     {
-        // 참조 상수 (필요시 수정)
-        private const double RefTextWidthMm = 20;
-        private const double RefTextHeightMm = 10;
-        private const double RefBarcode1DWidthMm = 30;
-        private const double RefBarcode1DHeightMm = 10;
-        private const double RefBarcode2DWidthMm = 18; // QR는 정사각형
-
         private readonly IEnumerable<View> _views;
         private readonly View _skipView;
         private readonly Func<double, double> _screenPixelsToMm;
+        private readonly int _printerDpi;
 
-        /// <summary>
-        /// 생성자
-        /// </summary>
-        /// <param name="views">에디터 영역의 모든 View 컬렉션 (예: EditorArea.Children)</param>
-        /// <param name="skipView">ZPL/PGL 생성 시 스킵할 View (예: 선택 표시용 Border)</param>
-        /// <param name="screenPixelsToMm">화면 픽셀을 mm로 변환하는 함수</param>
-        public LabelExporter(IEnumerable<View> views, View skipView, Func<double, double> screenPixelsToMm)
+        public LabelExporter(IEnumerable<View> views, View skipView,
+            Func<double, double> screenPixelsToMm, int printerDpi)
         {
             _views = views;
             _skipView = skipView;
             _screenPixelsToMm = screenPixelsToMm;
+            _printerDpi = printerDpi;
         }
 
         /// <summary>
-        /// 주어진 프린터 DPI를 기반으로 ZPL 문자열을 생성합니다.
+        /// ZPL 생성
         /// </summary>
-        public string GenerateZPL(int printerDpi)
+        public string GenerateZPL()
         {
-            string zpl = "^XA";
+            var zpl = "^XA\n";
+
             foreach (var view in _views)
             {
-                if (view == _skipView)
+                if (view == _skipView) 
                     continue;
 
+                // 화면상 Bounds
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                double xMm = _screenPixelsToMm(bounds.X);
-                double yMm = _screenPixelsToMm(bounds.Y);
-                if (xMm < 0) xMm = 0;
-                if (yMm < 0) yMm = 0;
-                int xDots = (int)Math.Round(xMm * printerDpi / 25.4);
-                int yDots = (int)Math.Round(yMm * printerDpi / 25.4);
+
+                // 위치/크기를 '도트'로 변환
+                int xDots = MmToDots(_screenPixelsToMm(bounds.X));
+                int yDots = MmToDots(_screenPixelsToMm(bounds.Y));
+                int wDots = MmToDots(_screenPixelsToMm(bounds.Width));
+                int hDots = MmToDots(_screenPixelsToMm(bounds.Height));
+                if (wDots < 1) wDots = 1;
+                if (hDots < 1) hDots = 1;
 
                 if (view is Label lbl)
                 {
-                    zpl += $"^FO{xDots},{yDots}^A0N,30,30^FD{lbl.Text}^FS";
+                    // 폰트 크기: 높이를 hDots로 하고, 너비는 hDots/2로 간단히 잡음(2:1 비)
+                    // (원한다면 hDots, wDots에 맞게 더 복잡한 로직도 가능)
+                    int fontH = hDots;
+                    int fontW = fontH / 2;
+                    zpl += $"^FO{xDots},{yDots}^A0N,{fontH},{fontW}^FD{lbl.Text}^FS\n";
                 }
-                else if (view is Image img)
+                else if (view is Image img && !string.IsNullOrEmpty(img.ClassId))
                 {
-                    if (!string.IsNullOrEmpty(img.ClassId))
+                    if (img.ClassId.StartsWith("Barcode1D:"))
                     {
-                        if (img.ClassId.StartsWith("Barcode1D:"))
+                        // Code128
+                        string data = img.ClassId.Substring("Barcode1D:".Length);
+
+                        // (1) 바코드 높이 = hDots
+                        // (2) 폭은 moduleWidth로 조절
+                        //     - Code128 전체 모듈 수 = ZXing 이용
+                        int totalModules = BarcodeHelper.GetCode128ModuleCount(data);
+                        if (totalModules <= 0) totalModules = 1;
+
+                        // quiet zone 10 모듈 가정
+                        int neededDots = totalModules; // 본문 바코드
+                        int quietZone = 10; // 양옆 모듈
+                        // bounding box 폭 내에서 최대로 들어갈 수 있는 moduleWidth 찾기
+                        int bestModuleWidth = 1;
+                        for (int mw = 1; mw <= 10; mw++)
                         {
-                            string data = img.ClassId.Substring("Barcode1D:".Length);
-                            double heightMm = _screenPixelsToMm(bounds.Height);
-                            int heightDots = (int)Math.Round(heightMm * printerDpi / 25.4);
-                            if (heightDots <= 0)
-                                heightDots = 80; // fallback
-                            zpl += $"^FO{xDots},{yDots}^BCN,{heightDots},N,N,N^FD{data}^FS";
+                            int totalWidth = (totalModules + quietZone) * mw;
+                            if (totalWidth <= wDots)
+                                bestModuleWidth = mw;
+                            else
+                                break;
                         }
-                        else if (img.ClassId.StartsWith("Barcode2D:"))
-                        {
-                            // ClassId 형식: "Barcode2D:{data};{computedMagnification}"
-                            string[] parts = img.ClassId.Split(';');
-                            string data = parts[0].Substring("Barcode2D:".Length);
-                            int magnification = 1;
-                            if (parts.Length > 1 && int.TryParse(parts[1], out int mag))
-                                magnification = mag;
-                            zpl += $"^FO{xDots},{yDots}^BQN,2,{magnification}^FDMM,A{data}^FS";
-                        }
+
+                        // ^BY {narrowBarWidth}, {wideBarRatio=2}, {height}
+                        zpl += $"^FO{xDots},{yDots}^BY{bestModuleWidth},2,{hDots}^BCN,{hDots},N,N,N^FD{data}^FS\n";
+                    }
+                    else if (img.ClassId.StartsWith("Barcode2D:"))
+                    {
+                        // QR
+                        string data = img.ClassId.Substring("Barcode2D:".Length);
+
+                        int moduleCount = BarcodeHelper.GetQrModuleCount(data);
+                        if (moduleCount <= 0) moduleCount = 1;
+
+                        // bounding box 폭을 모두 사용하려면
+                        // magnification = wDots / moduleCount
+                        // (너무 크면 모듈이 사각형 밖으로 나갈 수 있으니, 최소값 적용)
+                        int mag = wDots / moduleCount;
+                        if (mag < 1) mag = 1;
+
+                        // ^BQN,2,magnification
+                        zpl += $"^FO{xDots},{yDots}^BQN,2,{mag}^FDMM,A{data}^FS\n";
                     }
                 }
             }
+
             zpl += "^XZ";
             return zpl;
         }
 
         /// <summary>
-        /// 주어진 프린터 DPI를 기반으로 PGL 문자열을 생성합니다.
+        /// (옵션) PGL 생성 예시 – 필요 없다면 제거
         /// </summary>
-        public string GeneratePGL(int printerDpi)
+        public string GeneratePGL()
         {
             string pgl = "<PGL_START>\n";
-            foreach (var view in _views)
-            {
-                if (view == _skipView)
-                    continue;
 
-                var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                double xMm = _screenPixelsToMm(bounds.X);
-                double yMm = _screenPixelsToMm(bounds.Y);
-                if (xMm < 0) xMm = 0;
-                if (yMm < 0) yMm = 0;
-                int xDots = (int)Math.Round(xMm * printerDpi / 25.4);
-                int yDots = (int)Math.Round(yMm * printerDpi / 25.4);
+            // 이하 로직은 GenerateZPL과 유사하게 각 객체별로 변환
+            // 필요에 맞게 수정
 
-                if (view is Label lbl)
-                {
-                    pgl += $" TEXT {xDots},{yDots},0,30,\"{lbl.Text}\";\n";
-                }
-                else if (view is Image img)
-                {
-                    if (!string.IsNullOrEmpty(img.ClassId))
-                    {
-                        if (img.ClassId.StartsWith("Barcode1D:"))
-                        {
-                            string data = img.ClassId.Substring("Barcode1D:".Length);
-                            double heightMm = _screenPixelsToMm(bounds.Height);
-                            int heightDots = (int)Math.Round(heightMm * printerDpi / 25.4);
-                            if (heightDots <= 0)
-                                heightDots = 80;
-                            pgl += $" BARCODE1D {xDots},{yDots},CODE128,{heightDots},\"{data}\",NOHR;\n";
-                        }
-                        else if (img.ClassId.StartsWith("Barcode2D:"))
-                        {
-                            string[] parts = img.ClassId.Split(';');
-                            string data = parts[0].Substring("Barcode2D:".Length);
-                            int magnification = 1;
-                            if (parts.Length > 1 && int.TryParse(parts[1], out int mag))
-                                magnification = mag;
-                            int moduleCount = GetQrModuleCount(data);
-                            int printedWidthDots = moduleCount * magnification;
-                            pgl += $" BARCODE2D {xDots},{yDots},QR,{printedWidthDots},\"{data}\";\n";
-                        }
-                    }
-                }
-            }
             pgl += "<PGL_END>";
             return pgl;
         }
 
-        /// <summary>
-        /// ZXing을 이용하여 QR 코드 모듈 수를 계산합니다.
-        /// </summary>
-        private int GetQrModuleCount(string data)
+        private int MmToDots(double mm)
         {
-            var writer = new QRCodeWriter();
-            var matrix = writer.encode(data, BarcodeFormat.QR_CODE, 0, 0);
-            return matrix.Width;
+            // mm -> dots
+            // dots = mm * dpi / 25.4
+            return (int)Math.Round(mm * _printerDpi / 25.4);
         }
     }
 }
