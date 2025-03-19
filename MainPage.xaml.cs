@@ -14,19 +14,11 @@ namespace JHLabel
         DatabaseService _dbService;
         public List<LabelModel> Labels { get; set; } = new List<LabelModel>();
 
-        // 선택된 뷰 및 선택 표시용 오버레이(Border)
-        private View? _selectedView;
-        private Border _selectionIndicator;
-
         // 현재 편집 중인 라벨 디자인 데이터 (디자인 데이터는 mm 단위, DPI 등)
         private LabelModel? currentLabelDesign;
 
-        // 기준 라벨 크기 (참조값: 45×70mm)에서 각 요소의 비율
-        private const double RefLabelWidthMm = 45;
-        private const double RefLabelHeightMm = 70;
-        private const double RefTextWidthMm = 20, RefTextHeightMm = 10;
-        private const double RefBarcode1DWidthMm = 30, RefBarcode1DHeightMm = 10;
-        private const double RefBarcode2DWidthMm = 18; // QR는 정사각형
+        // EditorInteractionManager 인스턴스
+        private EditorInteractionManager _interactionManager;
 
         public MainPage()
         {
@@ -38,13 +30,14 @@ namespace JHLabel
             EditorArea.HorizontalOptions = LayoutOptions.Center;
             EditorArea.VerticalOptions = LayoutOptions.Center;
 
+            // DB 초기화 및 로드
             string dbPath = Path.Combine(FileSystem.AppDataDirectory, "labels.db3");
             System.Diagnostics.Debug.WriteLine($"Database Path: {dbPath}");
             _dbService = new DatabaseService(dbPath);
             LoadLabels();
 
             // 선택 표시용 Border 초기화
-            _selectionIndicator = new Border
+            var selectionIndicator = new Border
             {
                 Stroke = Colors.Blue,
                 StrokeThickness = 2,
@@ -52,7 +45,10 @@ namespace JHLabel
                 InputTransparent = true,
                 IsVisible = false
             };
-            EditorArea.Children.Add(_selectionIndicator);
+            EditorArea.Children.Add(selectionIndicator);
+
+            // EditorInteractionManager 생성
+            _interactionManager = new EditorInteractionManager(EditorArea, selectionIndicator);
         }
 
         async void LoadLabels()
@@ -141,7 +137,8 @@ namespace JHLabel
             }
 
             EditorArea.Children.Clear();
-            EditorArea.Children.Add(_selectionIndicator);
+            // 선택 표시용 Border 재추가
+            EditorArea.Children.Add(_interactionManager.SelectionIndicator);
             EditorArea.WidthRequest = MmToScreenPixels(currentLabelDesign.PaperWidthMm);
             EditorArea.HeightRequest = MmToScreenPixels(currentLabelDesign.PaperHeightMm);
         }
@@ -167,7 +164,7 @@ namespace JHLabel
                 await DisplayAlert("Deleted", "Label deleted successfully", "OK");
                 currentLabelDesign = null;
                 EditorArea.Children.Clear();
-                EditorArea.Children.Add(_selectionIndicator);
+                EditorArea.Children.Add(_interactionManager.SelectionIndicator);
                 LoadLabels();
             }
             else
@@ -185,8 +182,9 @@ namespace JHLabel
                 return;
             }
 
-            string zpl = GenerateZPLFromEditor(currentLabelDesign.DPI);
-            string pgl = GeneratePGLFromEditor(currentLabelDesign.DPI);
+            var exporter = new LabelExporter(EditorArea.Children.OfType<View>(), _interactionManager.SelectionIndicator, ScreenPixelsToMm);
+            string zpl = exporter.GenerateZPL(currentLabelDesign.DPI);
+            string pgl = exporter.GeneratePGL(currentLabelDesign.DPI);
             currentLabelDesign.ZPL = zpl;
             currentLabelDesign.PGL = pgl;
 
@@ -210,6 +208,8 @@ namespace JHLabel
                 return;
 
             double defaultX = 5, defaultY = 5;
+            const double RefTextWidthMm = 20;
+            const double RefTextHeightMm = 10;
             double widthScreen = MmToScreenPixels(RefTextWidthMm);
             double heightScreen = MmToScreenPixels(RefTextHeightMm);
 
@@ -221,8 +221,8 @@ namespace JHLabel
 
             AbsoluteLayout.SetLayoutBounds(lbl, rect);
             AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-            AddDragAndGesture(lbl);
             lbl.ClassId = "Text:" + text;
+            _interactionManager.AddDragAndGesture(lbl);
             EditorArea.Children.Add(lbl);
         }
 
@@ -234,6 +234,8 @@ namespace JHLabel
                 return;
 
             double defaultX = 5, defaultY = 20;
+            const double RefBarcode1DWidthMm = 30;
+            const double RefBarcode1DHeightMm = 10;
             double widthScreen = MmToScreenPixels(RefBarcode1DWidthMm);
             double heightScreen = MmToScreenPixels(RefBarcode1DHeightMm);
 
@@ -251,7 +253,7 @@ namespace JHLabel
 
             AbsoluteLayout.SetLayoutBounds(img, rect);
             AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-            AddDragAndGesture(img);
+            _interactionManager.AddDragAndGesture(img);
             img.ClassId = "Barcode1D:" + data;
             EditorArea.Children.Add(img);
         }
@@ -264,13 +266,13 @@ namespace JHLabel
                 return;
 
             double defaultX = 5, defaultY = 35;
-            // 기본 QR 코드 크기 (mm 단위)는 라벨 크기에 따라 동적으로 계산
+            const double RefBarcode2DWidthMm = 18; // QR는 정사각형
             double default2DSizeMm = RefBarcode2DWidthMm;
 
-            // QR 코드의 모듈 수 (ZXing으로 계산; quiet zone 포함된 값)
+            // QR 코드의 모듈 수 (quiet zone 포함)
             int moduleCount = GetQrModuleCount(data);
 
-            // 원하는 배율을 계산: moduleCount * magnification * 25.4 / DPI = default2DSizeMm
+            // 원하는 배율 계산: moduleCount * magnification * 25.4 / DPI = default2DSizeMm
             int computedMagnification = (int)Math.Round((default2DSizeMm * (currentLabelDesign?.DPI ?? 300) / 25.4) / moduleCount);
             if (computedMagnification < 1)
                 computedMagnification = 1;
@@ -296,135 +298,22 @@ namespace JHLabel
 
             AbsoluteLayout.SetLayoutBounds(img, rect);
             AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-            AddDragAndGesture(img);
-            // ClassId에 배율 정보 추가하여 나중에 ZPL 생성 시 참고
+            _interactionManager.AddDragAndGesture(img);
+            // ClassId에 배율 정보 추가 (나중에 ZPL 생성 시 참조)
             img.ClassId = "Barcode2D:" + data + ";" + computedMagnification;
             EditorArea.Children.Add(img);
         }
 
-        // 레이어 순서 조정: Bring to Front / Send to Back
+        // Bring to Front 버튼 클릭 시
         private void OnBringToFrontClicked(object sender, EventArgs e)
         {
-            if (_selectedView == null)
-            {
-                DisplayAlert("Info", "No object selected.", "OK");
-                return;
-            }
-            EditorArea.Children.Remove(_selectedView);
-            EditorArea.Children.Add(_selectedView);
+            _interactionManager.BringToFront();
         }
+
+        // Send to Back 버튼 클릭 시
         private void OnSendToBackClicked(object sender, EventArgs e)
         {
-            if (_selectedView == null)
-            {
-                DisplayAlert("Info", "No object selected.", "OK");
-                return;
-            }
-            EditorArea.Children.Remove(_selectedView);
-            EditorArea.Children.Insert(0, _selectedView);
-        }
-
-        // ZPL 생성: EditorArea의 각 객체 좌표 및 크기를 mm→dot 단위로 변환
-        private string GenerateZPLFromEditor(int printerDpi)
-        {
-            string zpl = "^XA";
-            foreach (var view in EditorArea.Children)
-            {
-                if (view == _selectionIndicator)
-                    continue;
-
-                var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                double xMm = ScreenPixelsToMm(bounds.X);
-                double yMm = ScreenPixelsToMm(bounds.Y);
-                if (xMm < 0) xMm = 0;
-                if (yMm < 0) yMm = 0;
-                int xDots = (int)Math.Round(xMm * printerDpi / 25.4);
-                int yDots = (int)Math.Round(yMm * printerDpi / 25.4);
-
-                if (view is Label lbl)
-                {
-                    zpl += $"^FO{xDots},{yDots}^A0N,30,30^FD{lbl.Text}^FS";
-                }
-                else if (view is Image img)
-                {
-                    if (!string.IsNullOrEmpty(img.ClassId))
-                    {
-                        if (img.ClassId.StartsWith("Barcode1D:"))
-                        {
-                            string data = img.ClassId.Substring("Barcode1D:".Length);
-                            double heightMm = ScreenPixelsToMm(bounds.Height);
-                            int heightDots = (int)Math.Round(heightMm * printerDpi / 25.4);
-                            if (heightDots <= 0)
-                                heightDots = 80; // fallback
-                            zpl += $"^FO{xDots},{yDots}^BCN,{heightDots},N,N,N^FD{data}^FS";
-                        }
-                        else if (img.ClassId.StartsWith("Barcode2D:"))
-                        {
-                            // ClassId 형식: "Barcode2D:{data};{computedMagnification}"
-                            string[] parts = img.ClassId.Split(';');
-                            string data = parts[0].Substring("Barcode2D:".Length);
-                            int magnification = 1;
-                            if (parts.Length > 1 && int.TryParse(parts[1], out int mag))
-                                magnification = mag;
-                            zpl += $"^FO{xDots},{yDots}^BQN,2,{magnification}^FDMM,A{data}^FS";
-                        }
-                    }
-                }
-            }
-            zpl += "^XZ";
-            return zpl;
-        }
-
-        // PGL 생성 (GenerateZPL과 유사한 방식)
-        private string GeneratePGLFromEditor(int printerDpi)
-        {
-            string pgl = "<PGL_START>\n";
-            foreach (var view in EditorArea.Children)
-            {
-                if (view == _selectionIndicator)
-                    continue;
-
-                var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
-                double xMm = ScreenPixelsToMm(bounds.X);
-                double yMm = ScreenPixelsToMm(bounds.Y);
-                if (xMm < 0) xMm = 0;
-                if (yMm < 0) yMm = 0;
-                int xDots = (int)Math.Round(xMm * printerDpi / 25.4);
-                int yDots = (int)Math.Round(yMm * printerDpi / 25.4);
-
-                if (view is Label lbl)
-                {
-                    pgl += $" TEXT {xDots},{yDots},0,30,\"{lbl.Text}\";\n";
-                }
-                else if (view is Image img)
-                {
-                    if (!string.IsNullOrEmpty(img.ClassId))
-                    {
-                        if (img.ClassId.StartsWith("Barcode1D:"))
-                        {
-                            string data = img.ClassId.Substring("Barcode1D:".Length);
-                            double heightMm = ScreenPixelsToMm(bounds.Height);
-                            int heightDots = (int)Math.Round(heightMm * printerDpi / 25.4);
-                            if (heightDots <= 0)
-                                heightDots = 80;
-                            pgl += $" BARCODE1D {xDots},{yDots},CODE128,{heightDots},\"{data}\",NOHR;\n";
-                        }
-                        else if (img.ClassId.StartsWith("Barcode2D:"))
-                        {
-                            string[] parts = img.ClassId.Split(';');
-                            string data = parts[0].Substring("Barcode2D:".Length);
-                            int magnification = 1;
-                            if (parts.Length > 1 && int.TryParse(parts[1], out int mag))
-                                magnification = mag;
-                            int moduleCount = GetQrModuleCount(data);
-                            int printedWidthDots = moduleCount * magnification;
-                            pgl += $" BARCODE2D {xDots},{yDots},QR,{printedWidthDots},\"{data}\";\n";
-                        }
-                    }
-                }
-            }
-            pgl += "<PGL_END>";
-            return pgl;
+            _interactionManager.SendToBack();
         }
 
         // ZXing을 이용하여 QR 코드의 모듈 수(버전 기준)를 반환하는 헬퍼 함수
@@ -435,170 +324,23 @@ namespace JHLabel
             return matrix.Width;
         }
 
-        // 드래그 및 선택 제스처 부여 (EditorArea 내에서 객체 이동)
-        private void AddDragAndGesture(View view)
-        {
-            var panGesture = new PanGestureRecognizer();
-            double startX = 0, startY = 0;
-            panGesture.PanUpdated += (s, e) =>
-            {
-                switch (e.StatusType)
-                {
-                    case GestureStatus.Started:
-                        var bounds = AbsoluteLayout.GetLayoutBounds(view);
-                        startX = bounds.X;
-                        startY = bounds.Y;
-                        break;
-                    case GestureStatus.Running:
-                        var current = AbsoluteLayout.GetLayoutBounds(view);
-                        double newX = startX + e.TotalX;
-                        double newY = startY + e.TotalY;
-                        var newRect = new Rect(newX, newY, current.Width, current.Height);
-                        newRect = ClampRect(newRect);
-                        AbsoluteLayout.SetLayoutBounds(view, newRect);
-                        if (_selectedView == view)
-                            UpdateSelectionIndicator();
-                        break;
-                }
-            };
-            view.GestureRecognizers.Add(panGesture);
-
-            var tapGesture = new TapGestureRecognizer();
-            tapGesture.Tapped += (s, e) => { SelectView(view); };
-            view.GestureRecognizers.Add(tapGesture);
-        }
-
-        // 객체 선택 시 호출
-        private void SelectView(View view)
-        {
-            _selectedView = view;
-            UpdateSelectionIndicator();
-        }
-
-        // 선택 표시 업데이트
-        private void UpdateSelectionIndicator()
-        {
-            if (_selectedView == null)
-            {
-                _selectionIndicator.IsVisible = false;
-                return;
-            }
-            var bounds = AbsoluteLayout.GetLayoutBounds(_selectedView);
-            if (bounds.Width <= 0 || bounds.Height <= 0)
-            {
-                var size = _selectedView.Measure(double.PositiveInfinity, double.PositiveInfinity);
-                bounds = new Rect(bounds.X, bounds.Y, size.Width, size.Height);
-                AbsoluteLayout.SetLayoutBounds(_selectedView, bounds);
-            }
-            double margin = 2;
-            AbsoluteLayout.SetLayoutBounds(_selectionIndicator, new Rect(bounds.X - margin, bounds.Y - margin, bounds.Width + margin * 2, bounds.Height + margin * 2));
-            _selectionIndicator.IsVisible = true;
-        }
-
-        // 라벨 전환: 선택 해제 및 EditorArea 재구성, ZPL 문자열 파싱
+        // 라벨 전환: 선택 해제 및 EditorArea 재구성, ZPL 파싱
         private void LabelListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            _selectedView = null;
-            _selectionIndicator.IsVisible = false;
+            _interactionManager.ClearSelection();
             if (LabelListView.SelectedItem is LabelModel model)
             {
                 currentLabelDesign = model;
                 EditorArea.Children.Clear();
-                EditorArea.Children.Add(_selectionIndicator);
+                EditorArea.Children.Add(_interactionManager.SelectionIndicator);
                 EditorArea.WidthRequest = MmToScreenPixels(currentLabelDesign.PaperWidthMm);
                 EditorArea.HeightRequest = MmToScreenPixels(currentLabelDesign.PaperHeightMm);
-                ParseZPLToEditor(model.ZPL, model.DPI);
-            }
-        }
-
-        // ZPL 문자열을 EditorArea에 파싱 – 생성 당시의 크기(텍스트, 1D/2D 바코드)로 배치
-        private void ParseZPLToEditor(string zpl, int printerDpi)
-        {
-            // 텍스트 파싱
-            var regexText = new Regex(@"\^FO(\d+),(\d+)\^A0N,30,30\^FD([^\\^]+)\^FS");
-            foreach (Match match in regexText.Matches(zpl))
-            {
-                if (match.Groups.Count == 4)
+                // ZplParser 생성 (드래그/제스처 추가를 위해 _interactionManager.AddDragAndGesture 델리게이트 전달)
+                var parser = new ZplParser(EditorArea.Width, EditorArea.Height, _interactionManager.AddDragAndGesture);
+                var views = parser.Parse(model.ZPL, model.DPI);
+                foreach (var view in views)
                 {
-                    int xDots = int.Parse(match.Groups[1].Value);
-                    int yDots = int.Parse(match.Groups[2].Value);
-                    string content = match.Groups[3].Value;
-                    double xMm = xDots * 25.4 / printerDpi;
-                    double yMm = yDots * 25.4 / printerDpi;
-                    if (xMm < 0) xMm = 0;
-                    if (yMm < 0) yMm = 0;
-                    double xScreen = MmToScreenPixels(xMm);
-                    double yScreen = MmToScreenPixels(yMm);
-                    var rect = ClampRect(new Rect(xScreen, yScreen, MmToScreenPixels(RefTextWidthMm), MmToScreenPixels(RefTextHeightMm)));
-                    var lbl = new Label { Text = content, BackgroundColor = Colors.White, TextColor = Colors.Black };
-                    AbsoluteLayout.SetLayoutBounds(lbl, rect);
-                    AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-                    AddDragAndGesture(lbl);
-                    lbl.ClassId = "Text:" + content;
-                    EditorArea.Children.Add(lbl);
-                }
-            }
-
-            // 1D 바코드 파싱
-            var regexBarcode1D = new Regex(@"\^FO(\d+),(\d+)\^BCN,(\d+),N,N,N\^FD([^\\^]+)\^FS");
-            foreach (Match match in regexBarcode1D.Matches(zpl))
-            {
-                if (match.Groups.Count == 5)
-                {
-                    int xDots = int.Parse(match.Groups[1].Value);
-                    int yDots = int.Parse(match.Groups[2].Value);
-                    string data = match.Groups[4].Value;
-                    double xMm = xDots * 25.4 / printerDpi;
-                    double yMm = yDots * 25.4 / printerDpi;
-                    if (xMm < 0) xMm = 0;
-                    if (yMm < 0) yMm = 0;
-                    double xScreen = MmToScreenPixels(xMm);
-                    double yScreen = MmToScreenPixels(yMm);
-                    var rect = ClampRect(new Rect(xScreen, yScreen, MmToScreenPixels(RefBarcode1DWidthMm), MmToScreenPixels(RefBarcode1DHeightMm)));
-                    var img = new Image
-                    {
-                        Source = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.CODE_128, (int)MmToScreenPixels(RefBarcode1DWidthMm), (int)MmToScreenPixels(RefBarcode1DHeightMm)),
-                        WidthRequest = rect.Width,
-                        HeightRequest = rect.Height
-                    };
-                    AbsoluteLayout.SetLayoutBounds(img, rect);
-                    AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-                    AddDragAndGesture(img);
-                    img.ClassId = "Barcode1D:" + data;
-                    EditorArea.Children.Add(img);
-                }
-            }
-
-            // 2D 바코드 파싱 (QR 코드)
-            var regexBarcode2D = new Regex(@"\^FO(\d+),(\d+)\^BQN,2,(\d+)\^FDMM,A([^\\^]+)\^FS");
-            foreach (Match match in regexBarcode2D.Matches(zpl))
-            {
-                if (match.Groups.Count == 5)
-                {
-                    int xDots = int.Parse(match.Groups[1].Value);
-                    int yDots = int.Parse(match.Groups[2].Value);
-                    string data = match.Groups[4].Value;
-                    double xMm = xDots * 25.4 / printerDpi;
-                    double yMm = yDots * 25.4 / printerDpi;
-                    if (xMm < 0) xMm = 0;
-                    if (yMm < 0) yMm = 0;
-                    double xScreen = MmToScreenPixels(xMm);
-                    double yScreen = MmToScreenPixels(yMm);
-                    double previewWidth = MmToScreenPixels(RefBarcode2DWidthMm);
-                    double previewHeight = previewWidth;
-                    var rect = ClampRect(new Rect(xScreen, yScreen, previewWidth, previewHeight));
-
-                    var img = new Image
-                    {
-                        Source = BarcodeGenerator.GenerateBarcodeImage(data, BarcodeFormat.QR_CODE, (int)previewWidth, (int)previewHeight),
-                        WidthRequest = previewWidth,
-                        HeightRequest = previewHeight
-                    };
-                    AbsoluteLayout.SetLayoutBounds(img, rect);
-                    AbsoluteLayout.SetLayoutFlags(img, AbsoluteLayoutFlags.None);
-                    AddDragAndGesture(img);
-                    img.ClassId = "Barcode2D:" + data;
-                    EditorArea.Children.Add(img);
+                    EditorArea.Children.Add(view);
                 }
             }
         }
