@@ -192,22 +192,32 @@ namespace JHLabel
         {
             if (currentLabelDesign == null) return;
 
+            // 1) 사용자에게 문자열 입력
             string text = await DisplayPromptAsync("Add Text", "Enter text:");
             if (string.IsNullOrEmpty(text)) return;
 
-            // 예시: 높이 40도트, 폭 20도트(2:1 비율)
-            int fontH = 40;
-            int fontW = 20;
+            // 2) 사용자에게 폰트 높이/너비(도트 단위) 입력
+            int fontH = 40, fontW = 20;
+            string inputH = await DisplayPromptAsync("Font Height (dots)", "Default 40", initialValue: "40");
+            string inputW = await DisplayPromptAsync("Font Width (dots)",  "Default 20", initialValue: "20");
+            if (!int.TryParse(inputH, out fontH)) fontH = 40;
+            if (!int.TryParse(inputW, out fontW)) fontW = 20;
 
-            double wPx = DotsToScreenPx(fontW);
-            double hPx = DotsToScreenPx(fontH);
+            // 3) 텍스트 길이 × 폰트너비 = 가로도트, 폰트높이 = 세로도트
+            int length = text.Length;
+            int totalWidthDots = length * fontW;
+            int totalHeightDots = fontH;
 
-            // 기본 위치 10,10 도트
+            // 4) 도트를 화면 픽셀로 변환
+            double wPx = DotsToScreenPx(totalWidthDots);
+            double hPx = DotsToScreenPx(totalHeightDots);
+
+            // 5) 기본 위치 10,10 도트만큼 떨어뜨려 배치
             double xPx = DotsToScreenPx(10);
             double yPx = DotsToScreenPx(10);
-
             var rect = _interactionManager.ClampRect(new Rect(xPx, yPx, wPx, hPx));
 
+            // 6) 실제 화면용 Label 생성
             var lbl = new Label
             {
                 Text = text,
@@ -216,7 +226,10 @@ namespace JHLabel
             };
             AbsoluteLayout.SetLayoutBounds(lbl, rect);
             AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-            lbl.ClassId = $"Text:{text}";
+
+            // 7) ClassId에 (텍스트, 폰트높이, 폰트너비) 보존: 나중에 ZPL 생성/파싱에 재활용
+            lbl.ClassId = $"Text:{text}|{fontH}|{fontW}";
+
             _interactionManager.AddDragAndGesture(lbl);
             EditorArea.Children.Add(lbl);
         }

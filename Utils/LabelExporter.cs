@@ -46,13 +46,21 @@ namespace JHLabel.Utils
                 if (wDots < 1) wDots = 1;
                 if (hDots < 1) hDots = 1;
 
-                if (view is Label lbl)
+                if (view is Label lbl && lbl.ClassId != null && lbl.ClassId.StartsWith("Text:"))
                 {
-                    // 폰트 크기: 높이를 hDots로 하고, 너비는 hDots/2로 간단히 잡음(2:1 비)
-                    // (원한다면 hDots, wDots에 맞게 더 복잡한 로직도 가능)
-                    int fontH = hDots;
-                    int fontW = fontH / 2;
-                    zpl += $"^FO{xDots},{yDots}^A0N,{fontH},{fontW}^FD{lbl.Text}^FS\n";
+                    var classBody = lbl.ClassId.Substring("Text:".Length); 
+                    var parts = classBody.Split('|');
+                    if (parts.Length == 3)
+                    {
+                        string textPart = parts[0];
+                        if (int.TryParse(parts[1], out int fontH) &&
+                            int.TryParse(parts[2], out int fontW))
+                        {
+                            // 도트 좌표(xDots, yDots)는 이미 계산됨
+                            // 그대로 ^A0N,fontH,fontW 로 ZPL 구성
+                            zpl += $"^FO{xDots},{yDots}^A0N,{fontH},{fontW}^FD{textPart}^FS\n";
+                        }
+                    }
                 }
                 else if (view is Image img && !string.IsNullOrEmpty(img.ClassId))
                 {

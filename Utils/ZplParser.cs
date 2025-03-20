@@ -39,12 +39,15 @@ namespace JHLabel.Utils
                     int fontW = int.Parse(match.Groups[4].Value);
                     string text = match.Groups[5].Value;
 
+                    // 글자 수만큼 가로도트 계산
+                    int length = text.Length;
+                    int totalWidthDots = length * fontW;
+                    int totalHeightDots = fontH;
+
                     double xPx = _dotsToScreenPx(xDots);
                     double yPx = _dotsToScreenPx(yDots);
-
-                    // 단순히 fontH, fontW를 그대로 bounding box로 사용
-                    double wPx = _dotsToScreenPx(fontW);
-                    double hPx = _dotsToScreenPx(fontH);
+                    double wPx = _dotsToScreenPx(totalWidthDots);
+                    double hPx = _dotsToScreenPx(totalHeightDots);
 
                     var rect = ClampRect(new Rect(xPx, yPx, wPx, hPx));
 
@@ -56,7 +59,10 @@ namespace JHLabel.Utils
                     };
                     AbsoluteLayout.SetLayoutBounds(lbl, rect);
                     AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
-                    lbl.ClassId = $"Text:{text}";
+
+                    // ClassId에 (텍스트, 폰트높이, 폰트너비) 저장
+                    lbl.ClassId = $"Text:{text}|{fontH}|{fontW}";
+
                     _addGesture?.Invoke(lbl);
                     views.Add(lbl);
                 }
