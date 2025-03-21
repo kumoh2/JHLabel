@@ -69,6 +69,12 @@
 		<PackageReference Include="SkiaSharp" Version="3.118.0-preview.2.3" />
 		<PackageReference Include="Dapper" Version="2.1.66" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0-preview.2.25163.8" />
+		<PackageReference Include="BinaryKits.Zpl.Label" Version="3.2.1" />
+		<PackageReference Include="BinaryKits.Zpl.Viewer" Version="1.2.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+  		<EmbeddedResource Include="Resources\Fonts\OpenSans-Regular.ttf" />
 	</ItemGroup>
 
 </Project>

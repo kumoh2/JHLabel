@@ -1,9 +1,5 @@
-using System;
-using System.Collections.Generic;
-using Microsoft.Maui.Controls;
-using Microsoft.Maui.Layouts;
-using ZXing;
-using ZXing.QrCode;
+using SkiaSharp;
+using BinaryKits.Zpl.Label.Helpers; // ByteHelper (GF 생성 시 사용)
 
 namespace JHLabel.Utils
 {
@@ -24,7 +20,7 @@ namespace JHLabel.Utils
         }
 
         /// <summary>
-        /// ZPL 생성
+        /// ZPL 문자열 생성
         /// </summary>
         public string GenerateZPL()
         {
@@ -32,13 +28,13 @@ namespace JHLabel.Utils
 
             foreach (var view in _views)
             {
-                if (view == _skipView) 
+                if (view == _skipView)
                     continue;
 
-                // 화면상 Bounds
+                // 화면상의 Bounds (AbsoluteLayout)
                 var bounds = (Rect)((BindableObject)view).GetValue(AbsoluteLayout.LayoutBoundsProperty);
 
-                // 위치/크기를 '도트'로 변환
+                // mm -> dots 변환 (dots = mm * dpi / 25.4)
                 int xDots = MmToDots(_screenPixelsToMm(bounds.X));
                 int yDots = MmToDots(_screenPixelsToMm(bounds.Y));
                 int wDots = MmToDots(_screenPixelsToMm(bounds.Width));
@@ -46,9 +42,10 @@ namespace JHLabel.Utils
                 if (wDots < 1) wDots = 1;
                 if (hDots < 1) hDots = 1;
 
+                // 텍스트 컨트롤 처리 (ClassId 형식: "Text:실제텍스트|폰트높이|폰트너비")
                 if (view is Label lbl && lbl.ClassId != null && lbl.ClassId.StartsWith("Text:"))
                 {
-                    var classBody = lbl.ClassId.Substring("Text:".Length); 
+                    var classBody = lbl.ClassId.Substring("Text:".Length);
                     var parts = classBody.Split('|');
                     if (parts.Length == 3)
                     {
@@ -56,29 +53,22 @@ namespace JHLabel.Utils
                         if (int.TryParse(parts[1], out int fontH) &&
                             int.TryParse(parts[2], out int fontW))
                         {
-                            // 도트 좌표(xDots, yDots)는 이미 계산됨
-                            // 그대로 ^A0N,fontH,fontW 로 ZPL 구성
-                            zpl += $"^FO{xDots},{yDots}^A0N,{fontH},{fontW}^FD{textPart}^FS\n";
+                            // 텍스트를 이미지로 변환하여 ^GF 명령어 생성
+                            string gfCommand = ConvertTextToGF(textPart, fontH, fontW);
+                            zpl += $"^FO{xDots},{yDots}{gfCommand}\n";
                         }
                     }
                 }
-                else if (view is Image img && !string.IsNullOrEmpty(img.ClassId))
+                // Barcode 처리
+                else if (view is Microsoft.Maui.Controls.Image img && !string.IsNullOrEmpty(img.ClassId))
                 {
                     if (img.ClassId.StartsWith("Barcode1D:"))
                     {
-                        // Code128
+                        // Code128 바코드 처리
                         string data = img.ClassId.Substring("Barcode1D:".Length);
-
-                        // (1) 바코드 높이 = hDots
-                        // (2) 폭은 moduleWidth로 조절
-                        //     - Code128 전체 모듈 수 = ZXing 이용
                         int totalModules = BarcodeHelper.GetCode128ModuleCount(data);
                         if (totalModules <= 0) totalModules = 1;
-
-                        // quiet zone 10 모듈 가정
-                        int neededDots = totalModules; // 본문 바코드
-                        int quietZone = 10; // 양옆 모듈
-                        // bounding box 폭 내에서 최대로 들어갈 수 있는 moduleWidth 찾기
+                        int quietZone = 10;
                         int bestModuleWidth = 1;
                         for (int mw = 1; mw <= 10; mw++)
                         {
@@ -88,25 +78,16 @@ namespace JHLabel.Utils
                             else
                                 break;
                         }
-
-                        // ^BY {narrowBarWidth}, {wideBarRatio=2}, {height}
                         zpl += $"^FO{xDots},{yDots}^BY{bestModuleWidth},2,{hDots}^BCN,{hDots},N,N,N^FD{data}^FS\n";
                     }
                     else if (img.ClassId.StartsWith("Barcode2D:"))
                     {
-                        // QR
+                        // QR 코드 처리
                         string data = img.ClassId.Substring("Barcode2D:".Length);
-
                         int moduleCount = BarcodeHelper.GetQrModuleCount(data);
                         if (moduleCount <= 0) moduleCount = 1;
-
-                        // bounding box 폭을 모두 사용하려면
-                        // magnification = wDots / moduleCount
-                        // (너무 크면 모듈이 사각형 밖으로 나갈 수 있으니, 최소값 적용)
                         int mag = wDots / moduleCount;
                         if (mag < 1) mag = 1;
-
-                        // ^BQN,2,magnification
                         zpl += $"^FO{xDots},{yDots}^BQN,2,{mag}^FDMM,A{data}^FS\n";
                     }
                 }
@@ -117,24 +98,96 @@ namespace JHLabel.Utils
         }
 
         /// <summary>
-        /// (옵션) PGL 생성 예시 – 필요 없다면 제거
+        /// (옵션) PGL 문자열 생성 예시 – 필요 없으면 제거 가능
         /// </summary>
         public string GeneratePGL()
         {
             string pgl = "<PGL_START>\n";
-
-            // 이하 로직은 GenerateZPL과 유사하게 각 객체별로 변환
-            // 필요에 맞게 수정
-
             pgl += "<PGL_END>";
             return pgl;
         }
 
         private int MmToDots(double mm)
         {
-            // mm -> dots
-            // dots = mm * dpi / 25.4
             return (int)Math.Round(mm * _printerDpi / 25.4);
+        }
+
+        /// <summary>
+        /// SkiaSharp를 사용하여 텍스트를 렌더링하고, 1비트 이미지 데이터로 변환하여 ^GF 명령어 문자열을 반환합니다.
+        /// </summary>
+        /// <param name="text">렌더링할 텍스트</param>
+        /// <param name="fontHeight">폰트 높이 (픽셀)</param>
+        /// <param name="fontWidth">폰트 폭 (필요에 따라 조정)</param>
+        /// <returns>^GF 명령어 문자열</returns>
+        private string ConvertTextToGF(string text, int fontHeight, int fontWidth)
+        {
+            // SkiaSharp를 사용하여 텍스트 렌더링
+            using (var paint = new SKPaint())
+            {
+                paint.TextSize = fontHeight;
+                paint.IsAntialias = true;
+                paint.Color = SKColors.Black;
+                // 시스템에 설치된 "Open Sans" 폰트를 사용 (필요에 따라 다른 폰트명 사용)
+                paint.Typeface = SKTypeface.FromFamilyName("Open Sans");
+                
+                // 텍스트 폭 측정
+                float textWidth = paint.MeasureText(text);
+                int width = (int)Math.Ceiling(textWidth) + 2;
+                int height = fontHeight + 2; // 간단하게 폰트 높이로 결정
+
+                var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+                using (var surface = SKSurface.Create(info))
+                {
+                    var canvas = surface.Canvas;
+                    canvas.Clear(SKColors.White);
+                    // 텍스트 그리기 (y좌표는 폰트 높이로 설정하여 baseline을 맞춤)
+                    canvas.DrawText(text, 0, fontHeight, paint);
+
+                    using (var image = surface.Snapshot())
+                    using (var bitmap = SKBitmap.FromImage(image))
+                    {
+                        // 1비트(bitonal) 이미지 데이터로 변환
+                        int bytesPerRow = (width + 7) / 8;
+                        int totalBytes = bytesPerRow * height;
+                        byte[] data = new byte[totalBytes];
+
+                        for (int y = 0; y < height; y++)
+                        {
+                            int bitIndex = 0;
+                            byte currentByte = 0;
+                            for (int x = 0; x < width; x++)
+                            {
+                                SKColor pixel = bitmap.GetPixel(x, y);
+                                // 단순 임계값: (R+G+B)/3 < 128이면 검정
+                                int avg = (pixel.Red + pixel.Green + pixel.Blue) / 3;
+                                bool isBlack = avg < 128;
+                                if (isBlack)
+                                {
+                                    currentByte |= (byte)(1 << (7 - bitIndex));
+                                }
+                                bitIndex++;
+                                if (bitIndex == 8)
+                                {
+                                    int index = y * bytesPerRow + (x / 8);
+                                    data[index] = currentByte;
+                                    currentByte = 0;
+                                    bitIndex = 0;
+                                }
+                            }
+                            if (bitIndex > 0)
+                            {
+                                int index = y * bytesPerRow + (width / 8);
+                                data[index] = currentByte;
+                            }
+                        }
+                        // 16진수 문자열로 변환 (ByteHelper.BytesToHex를 사용)
+                        string hexData = ByteHelper.BytesToHex(data);
+                        // ^GF 명령어 구성: ^GFA,<totalBytes>,<graphicFieldCount>,<bytesPerRow>,<hexData>
+                        string gfCommand = $"^GFA,{totalBytes},{totalBytes},{bytesPerRow},{hexData}";
+                        return gfCommand;
+                    }
+                }
+            }
         }
     }
 }

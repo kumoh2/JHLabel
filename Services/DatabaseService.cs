@@ -57,7 +57,7 @@ namespace JHLabel.Services
             if (existingLabel != null)
             {
                 // UI 쪽에서 overwrite 여부를 결정 (기존 코드와 동일하게 mainPage를 사용)
-                var mainPage = Application.Current?.Windows.FirstOrDefault()?.Page;
+                var mainPage =  global::Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
                 if (mainPage != null)
                 {
                     bool overwrite = await mainPage.DisplayAlert(
