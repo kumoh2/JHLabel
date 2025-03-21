@@ -1,5 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Layouts;
+using Microsoft.Maui.Devices;  // DeviceDisplay 사용을 위해 추가
+using ZXing;
+using ZXing.QrCode;
 using SkiaSharp;
-using BinaryKits.Zpl.Label.Helpers; // ByteHelper (GF 생성 시 사용)
+using BinaryKits.Zpl.Label.Helpers; // ByteHelper 사용
+// BarcodeHelper는 ZXing 등을 통해 구현되어 있다고 가정
 
 namespace JHLabel.Utils
 {
@@ -42,7 +52,7 @@ namespace JHLabel.Utils
                 if (wDots < 1) wDots = 1;
                 if (hDots < 1) hDots = 1;
 
-                // 텍스트 컨트롤 처리 (ClassId 형식: "Text:실제텍스트|폰트높이|폰트너비")
+                // 텍스트 컨트롤 처리 (ClassId 형식: "Text:실제텍스트|폰트사이즈(도트)|폰트너비")
                 if (view is Label lbl && lbl.ClassId != null && lbl.ClassId.StartsWith("Text:"))
                 {
                     var classBody = lbl.ClassId.Substring("Text:".Length);
@@ -50,11 +60,11 @@ namespace JHLabel.Utils
                     if (parts.Length == 3)
                     {
                         string textPart = parts[0];
-                        if (int.TryParse(parts[1], out int fontH) &&
+                        if (int.TryParse(parts[1], out int fontDots) &&
                             int.TryParse(parts[2], out int fontW))
                         {
                             // 텍스트를 이미지로 변환하여 ^GF 명령어 생성
-                            string gfCommand = ConvertTextToGF(textPart, fontH, fontW);
+                            string gfCommand = ConvertTextToGF(textPart, fontDots, fontW);
                             zpl += $"^FO{xDots},{yDots}{gfCommand}\n";
                         }
                     }
@@ -107,41 +117,61 @@ namespace JHLabel.Utils
             return pgl;
         }
 
+        /// <summary>
+        /// mm를 도트로 변환 (도트 = mm * dpi / 25.4)
+        /// </summary>
         private int MmToDots(double mm)
         {
             return (int)Math.Round(mm * _printerDpi / 25.4);
         }
 
         /// <summary>
-        /// SkiaSharp를 사용하여 텍스트를 렌더링하고, 1비트 이미지 데이터로 변환하여 ^GF 명령어 문자열을 반환합니다.
+        /// 도트를 스크린 픽셀로 변환 (보정: 실제 화면 배율을 고려)
+        /// DeviceDisplay.MainDisplayInfo.Density를 사용하여 변환합니다.
+        /// </summary>
+        private float DotsToScreenPx(int dots)
+        {
+            // DeviceDisplay.MainDisplayInfo.Density 예: 1.5이면, 논리 픽셀 = 물리 픽셀 / 1.5
+            double density = DeviceDisplay.MainDisplayInfo.Density;
+            return (float)(dots / density);
+        }
+
+        /// <summary>
+        /// SkiaSharp를 사용하여 텍스트를 렌더링한 후, 1비트(bitonal) 이미지 데이터로 변환하여 ^GF 명령어 문자열로 반환합니다.
+        /// 폰트 사이즈는 입력된 도트(fontDots)를 DotsToScreenPx()로 변환한 값을 사용합니다.
         /// </summary>
         /// <param name="text">렌더링할 텍스트</param>
-        /// <param name="fontHeight">폰트 높이 (픽셀)</param>
+        /// <param name="fontDots">폰트 사이즈 (도트 단위)</param>
         /// <param name="fontWidth">폰트 폭 (필요에 따라 조정)</param>
         /// <returns>^GF 명령어 문자열</returns>
-        private string ConvertTextToGF(string text, int fontHeight, int fontWidth)
+        private string ConvertTextToGF(string text, int fontDots, int fontWidth)
         {
-            // SkiaSharp를 사용하여 텍스트 렌더링
+            // 도트 단위의 폰트 크기를 스크린 픽셀로 변환
+            float skiaFontSize = DotsToScreenPx(fontDots);
+
             using (var paint = new SKPaint())
             {
-                paint.TextSize = fontHeight;
+                paint.TextSize = skiaFontSize;
                 paint.IsAntialias = true;
                 paint.Color = SKColors.Black;
                 // 시스템에 설치된 "Open Sans" 폰트를 사용 (필요에 따라 다른 폰트명 사용)
                 paint.Typeface = SKTypeface.FromFamilyName("Open Sans");
-                
+
                 // 텍스트 폭 측정
                 float textWidth = paint.MeasureText(text);
+                // 폰트 메트릭스를 가져와서 실제 텍스트 높이 계산 (baseline 기준)
+                SKFontMetrics metrics;
+                paint.GetFontMetrics(out metrics);
+                int height = (int)Math.Ceiling(metrics.Descent - metrics.Ascent) + 2;
                 int width = (int)Math.Ceiling(textWidth) + 2;
-                int height = fontHeight + 2; // 간단하게 폰트 높이로 결정
 
                 var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
                 using (var surface = SKSurface.Create(info))
                 {
                     var canvas = surface.Canvas;
                     canvas.Clear(SKColors.White);
-                    // 텍스트 그리기 (y좌표는 폰트 높이로 설정하여 baseline을 맞춤)
-                    canvas.DrawText(text, 0, fontHeight, paint);
+                    // 텍스트를 baseline에 맞춰 그리기 (y = -metrics.Ascent)
+                    canvas.DrawText(text, 0, -metrics.Ascent, paint);
 
                     using (var image = surface.Snapshot())
                     using (var bitmap = SKBitmap.FromImage(image))
@@ -158,7 +188,6 @@ namespace JHLabel.Utils
                             for (int x = 0; x < width; x++)
                             {
                                 SKColor pixel = bitmap.GetPixel(x, y);
-                                // 단순 임계값: (R+G+B)/3 < 128이면 검정
                                 int avg = (pixel.Red + pixel.Green + pixel.Blue) / 3;
                                 bool isBlack = avg < 128;
                                 if (isBlack)
@@ -180,7 +209,7 @@ namespace JHLabel.Utils
                                 data[index] = currentByte;
                             }
                         }
-                        // 16진수 문자열로 변환 (ByteHelper.BytesToHex를 사용)
+                        // 16진수 문자열로 변환 (ByteHelper.BytesToHex 사용)
                         string hexData = ByteHelper.BytesToHex(data);
                         // ^GF 명령어 구성: ^GFA,<totalBytes>,<graphicFieldCount>,<bytesPerRow>,<hexData>
                         string gfCommand = $"^GFA,{totalBytes},{totalBytes},{bytesPerRow},{hexData}";
