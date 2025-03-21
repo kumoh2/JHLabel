@@ -192,48 +192,46 @@ namespace JHLabel
         {
             if (currentLabelDesign == null) return;
 
-            // 1) 사용자에게 문자열 입력
+            // 문자열 입력
             string text = await DisplayPromptAsync("Add Text", "Enter text:");
             if (string.IsNullOrEmpty(text)) return;
 
-            // 2) 사용자에게 폰트 높이/너비(도트 단위) 입력
-            int fontH = 40, fontW = 20;
-            string inputH = await DisplayPromptAsync("Font Height (dots)", "Default 40", initialValue: "40");
-            string inputW = await DisplayPromptAsync("Font Width (dots)",  "Default 20", initialValue: "20");
-            if (!int.TryParse(inputH, out fontH)) fontH = 40;
-            if (!int.TryParse(inputW, out fontW)) fontW = 20;
+            // 폰트 사이즈 (도트 단위) 입력
+            int fontDots = 40; 
+            string inputSize = await DisplayPromptAsync("Font Size (dots)", "Default 40", initialValue: "40");
+            if (!int.TryParse(inputSize, out fontDots)) fontDots = 40;
 
-            // 3) 텍스트 길이 × 폰트너비 = 가로도트, 폰트높이 = 세로도트
+            // 텍스트 길이에 따라 대략적인 Bounding Box 추정 (가로=문자수*폰트, 세로=폰트)
             int length = text.Length;
-            int totalWidthDots = length * fontW;
-            int totalHeightDots = fontH;
+            int totalWidthDots = length * fontDots;
+            int totalHeightDots = fontDots;
 
-            // 4) 도트를 화면 픽셀로 변환
+            // 도트→화면 픽셀 변환
             double wPx = DotsToScreenPx(totalWidthDots);
             double hPx = DotsToScreenPx(totalHeightDots);
 
-            // 5) 기본 위치 10,10 도트만큼 떨어뜨려 배치
+            // 기본 위치 (10도트,10도트)
             double xPx = DotsToScreenPx(10);
             double yPx = DotsToScreenPx(10);
             var rect = _interactionManager.ClampRect(new Rect(xPx, yPx, wPx, hPx));
 
-            // 6) 실제 화면용 Label 생성
+            // 화면용 Label
             var lbl = new Label
             {
                 Text = text,
                 BackgroundColor = Colors.White,
-                TextColor = Colors.Black
+                TextColor = Colors.Black,
+                FontSize = DotsToScreenPx(fontDots) // 화면에서도 비슷한 크기로 보이게
             };
             AbsoluteLayout.SetLayoutBounds(lbl, rect);
             AbsoluteLayout.SetLayoutFlags(lbl, AbsoluteLayoutFlags.None);
 
-            // 7) ClassId에 (텍스트, 폰트높이, 폰트너비) 보존: 나중에 ZPL 생성/파싱에 재활용
-            lbl.ClassId = $"Text:{text}|{fontH}|{fontW}";
+            // ClassId: "Text:{문자열}|{폰트사이즈}"
+            lbl.ClassId = $"Text:{text}|{fontDots}";
 
             _interactionManager.AddDragAndGesture(lbl);
             EditorArea.Children.Add(lbl);
         }
-
         private async void OnAddBarcode1DClicked(object sender, EventArgs e)
         {
             if (currentLabelDesign == null) return;
