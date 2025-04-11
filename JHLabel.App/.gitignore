@@ -1,0 +1,13 @@
+# Electron 앱 빌드 결과물
+out/
+release-builds/
+
+# 웹 프로젝트의 빌드된 결과물 (자동 생성되므로 git 제외)
+public/
+
+# Node.js 종속성 (반드시 제외)
+node_modules/
+
+# 환경변수 파일 제외 (선택적)
+.env
+.env.*
