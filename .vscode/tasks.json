@@ -1,0 +1,34 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "build:jhlabel-api",
+        "type": "shell",
+        "command": "dotnet",
+        "args": [
+          "build",
+          "${workspaceFolder}/JHLabel.Api/JHLabel.Api.csproj",
+          "--configuration",
+          "Debug"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}/JHLabel.Api"
+        },
+        "problemMatcher": "$msCompile",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        }
+      },
+      {
+        "label": "build-svelte-electron",
+        "type": "shell",
+        "command": "npm run build:electron",
+        "options": {
+          "cwd": "${workspaceFolder}/JHLabel.Web"
+        },
+        "problemMatcher": []
+      }
+    ]
+  }
+  
