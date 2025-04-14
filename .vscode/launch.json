@@ -1,0 +1,79 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "SvelteKit Dev",
+        "type": "pwa-node",
+        "request": "launch",
+        "program": "${workspaceFolder}/JHLabel.Web/node_modules/vite/bin/vite.js",
+        "args": ["dev"],
+        "cwd": "${workspaceFolder}/JHLabel.Web",
+        "envFile": "${workspaceFolder}/JHLabel.Web/.env",
+        "sourceMaps": true,
+        "autoAttachChildProcesses": true,
+        "outFiles": [
+          "${workspaceFolder}/JHLabel.Web/.svelte-kit/output/server/**/*.js"
+        ],
+        "console": "integratedTerminal"
+      },
+      {
+        "name": "Electron Main",
+        "type": "pwa-node",
+        "request": "launch",
+        "runtimeExecutable": "${workspaceFolder}/JHLabel.App/node_modules/.bin/electron",
+        "program": "${workspaceFolder}/JHLabel.App/src/main.js",
+        "cwd": "${workspaceFolder}/JHLabel.App",
+        "args": [],
+        "env": {
+          "NODE_ENV": "development"
+        },
+        "outFiles": [
+          "${workspaceFolder}/JHLabel.App/**/*.js"
+        ],
+        "sourceMaps": true,
+        "console": "integratedTerminal"
+      },
+      {
+        "name": "Electron Renderer",
+        "type": "pwa-chrome",
+        "request": "attach",
+        "port": 9222,
+        "webRoot": "${workspaceFolder}/JHLabel.App",
+        "timeout": 30000
+      },
+      {
+        "name": "Launch JHLabel.Api (dotnet run)",
+        "type": "coreclr",
+        "request": "launch",
+        "program": "C:\\Program Files\\dotnet\\dotnet.exe",
+        "args": [
+          "run",
+          "--project",
+          "${workspaceFolder}/JHLabel.Api/JHLabel.Api.csproj"
+        ],
+        "cwd": "${workspaceFolder}/JHLabel.Api",
+        "stopAtEntry": false,
+        "serverReadyAction": {
+          "action": "openExternally",
+          "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+        },
+        "env": {
+          "ASPNETCORE_ENVIRONMENT": "Development"
+        },
+        "console": "integratedTerminal",
+        "internalConsoleOptions": "neverOpen"
+      }
+    ],
+    "compounds": [
+      {
+        "name": "All Debug",
+        "configurations": [
+          "SvelteKit Dev",
+          "Electron Main",
+          "Electron Renderer",
+          "Launch JHLabel.Api (dotnet run)"
+        ]
+      }
+    ]
+  }
+  
