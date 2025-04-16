@@ -1,34 +1,47 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-      {
-        "label": "build:jhlabel-api",
-        "type": "shell",
-        "command": "dotnet",
-        "args": [
-          "build",
-          "${workspaceFolder}/JHLabel.Api/JHLabel.Api.csproj",
-          "--configuration",
-          "Debug"
-        ],
-        "options": {
-          "cwd": "${workspaceFolder}/JHLabel.Api"
-        },
-        "problemMatcher": "$msCompile",
-        "group": {
-          "kind": "build",
-          "isDefault": true
-        }
-      },
-      {
-        "label": "build-svelte-electron",
-        "type": "shell",
-        "command": "npm run build:electron",
-        "options": {
-          "cwd": "${workspaceFolder}/JHLabel.Web"
-        },
-        "problemMatcher": []
-      }
-    ]
-  }
-  
+  "version": "2.0.0",
+  "tasks": [
+    /* ────────────────────────────────
+       ASP.NET Core API 빌드
+    ─────────────────────────────────*/
+    {
+      "label": "build:jhlabel-api",
+      "type":  "shell",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/JHLabel.Api/JHLabel.Api.csproj",
+        "--configuration",
+        "Debug"
+      ],
+      "options": { "cwd": "${workspaceFolder}/JHLabel.Api" },
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+
+    /* ────────────────────────────────
+       Electron용 Web 정적 빌드 + 복사
+       (App 프로젝트에서 실행해야 public 폴더가 채워집니다)
+    ─────────────────────────────────*/
+    {
+      "label": "build-svelte-electron",
+      "type":  "shell",
+      "command": "npm run build",               // ← build (복사 포함)
+      "options": { "cwd": "${workspaceFolder}/JHLabel.App" },
+      "problemMatcher": []
+    },
+
+    /* ────────────────────────────────
+       SvelteKit dev 서버
+       (단독으로도 실행할 수 있게 task로 등록: 선택 사항)
+    ─────────────────────────────────*/
+    {
+      "label": "sveltekit-dev-server",
+      "type":  "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/JHLabel.Web" },
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

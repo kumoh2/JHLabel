@@ -1,6 +1,9 @@
 {
   "version": "0.2.0",
   "configurations": [
+    /* ────────────────────────────────
+       1) SvelteKit Dev 서버
+    ─────────────────────────────────*/
     {
       "name": "SvelteKit Dev",
       "type": "node",
@@ -16,6 +19,11 @@
       ],
       "console": "integratedTerminal"
     },
+
+    /* ────────────────────────────────
+       2) Electron (Main 프로세스)
+       - 실행 전 웹 빌드+복사 task 실행
+    ─────────────────────────────────*/
     {
       "name": "Electron Main",
       "type": "node",
@@ -24,30 +32,21 @@
       "runtimeExecutable": "${workspaceFolder}/JHLabel.App/node_modules/.bin/electron",
       "program": "${workspaceFolder}/JHLabel.App/src/main.js",
       "cwd": "${workspaceFolder}/JHLabel.App",
-      "args": [],
-      "env": {
-        "NODE_ENV": "development"
-      },
-      "outFiles": [
-        "${workspaceFolder}/JHLabel.App/**/*.js"
-      ],
+      "env": { "NODE_ENV": "development" },
+      "outFiles": [ "${workspaceFolder}/JHLabel.App/**/*.js" ],
       "sourceMaps": true,
       "console": "integratedTerminal"
     },
-    // {
-    //   "name": "Electron Renderer",
-    //   "type": "pwa-chrome",
-    //   "request": "attach",
-    //   "port": 9222,
-    //   "webRoot": "${workspaceFolder}/JHLabel.App",
-    //   "timeout": 30000
-    // },
+
+    /* ────────────────────────────────
+       3) ASP.NET Core API
+    ─────────────────────────────────*/
     {
       "name": "ASP.NET Core Api",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build:jhlabel-api",
-      "program": "C:\\Program Files\\dotnet\\dotnet.exe",
+      "program": "dotnet",
       "args": [
         "run",
         "--project",
@@ -59,23 +58,23 @@
         "action": "openExternally",
         "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
       },
-      "env": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      },
+      "env": { "ASPNETCORE_ENVIRONMENT": "Development" },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
     }
+  ],
+
+  /* ────────────────────────────────
+     4) 복합 실행 (세 개를 한꺼번에 스타트)
+  ─────────────────────────────────*/
+  "compounds": [
+    {
+      "name": "All — Svelte + Electron + API",
+      "configurations": [
+        "SvelteKit Dev",
+        "Electron Main",
+        "ASP.NET Core Api"
+      ]
+    }
   ]
-  // ,
-  // "compounds": [
-  //   {
-  //     "name": "All Debug",
-  //     "configurations": [
-  //       "SvelteKit Dev",
-  //       "Electron Main",
-  //       "Electron Renderer",
-  //       "Launch JHLabel.Api"
-  //     ]
-  //   }
-  // ]
 }

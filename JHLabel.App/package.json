@@ -2,21 +2,20 @@
   "name": "jhlabel.app",
   "version": "1.0.0",
   "main": "src/main.js",
-	"scripts": {
-	  "web:build": "npm run build:electron --prefix ../JHLabel.Web",
-	  "copy:web": "xcopy /E /I /Y ..\\JHLabel.Web\\build .\\public",
-	  "build": "npm run web:build && npm run copy:web",
-	  "electron": "electron .",
-	  "dev": "npm run build && npm run electron"
-	},
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+
+  "scripts": {
+    "web:build": "npm run build:electron --prefix ../JHLabel.Web",
+    "copy:web": "shx rm -rf ./public && shx mkdir -p public && shx cp -r ../JHLabel.Web/build/* ./public",
+    "build": "npm run web:build && npm run copy:web",
+    "electron": "electron .",
+    "dev": "npm run build && npm run electron"
+  },
+
   "devDependencies": {
     "concurrently": "^9.1.2",
     "electron": "^35.1.5",
     "electron-builder": "^26.0.12",
-    "wait-on": "^8.0.3"
+    "wait-on": "^8.0.3",
+    "shx": "^0.3.4"
   }
 }
