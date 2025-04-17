@@ -11,7 +11,7 @@ const config = {
   kit: {
     adapter: isElectron ? adapterStatic() : adapterAuto(),
     prerender: {
-      entries: isElectron ? ['*'] : [],
+      entries: isElectron ? ['*'] : []
     }
   }
 };
